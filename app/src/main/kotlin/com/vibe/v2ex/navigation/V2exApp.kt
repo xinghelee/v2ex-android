@@ -26,6 +26,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.vibe.v2ex.feature.account.AccountScreen
 import com.vibe.v2ex.feature.home.HomeScreen
+import com.vibe.v2ex.feature.moderation.ModerationSettingsScreen
 import com.vibe.v2ex.feature.nodes.NodeTopicsScreen
 import com.vibe.v2ex.feature.nodes.NodesScreen
 import com.vibe.v2ex.feature.notifications.NotificationsScreen
@@ -112,6 +113,7 @@ fun V2exApp() {
                 ProfileScreen(
                     onLoginClick = { navController.navigate(Route.Login) },
                     onSettingsClick = { navController.navigate(Route.Settings) },
+                    onModerationClick = { navController.navigate(Route.Moderation) },
                 )
             }
             composable<Route.Topic> { entry ->
@@ -133,6 +135,9 @@ fun V2exApp() {
             }
             composable<Route.Settings> {
                 SettingsScreen(onBack = navController::popBackStack)
+            }
+            composable<Route.Moderation> {
+                ModerationSettingsScreen(onBack = navController::popBackStack)
             }
             composable<Route.Write> {
                 WriteScreen(onBack = navController::popBackStack)

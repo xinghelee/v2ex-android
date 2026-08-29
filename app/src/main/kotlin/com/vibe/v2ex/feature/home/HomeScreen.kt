@@ -1,40 +1,48 @@
 package com.vibe.v2ex.feature.home
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vibe.v2ex.data.model.Topic
-import com.vibe.v2ex.designsystem.Avatar
-import com.vibe.v2ex.designsystem.relativeTimeText
+import com.vibe.v2ex.designsystem.CardGroupItem
+import com.vibe.v2ex.designsystem.CardTopicRow
+import com.vibe.v2ex.designsystem.FeaturedTopicCard
+import com.vibe.v2ex.designsystem.cardGroupPosition
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,102 +52,148 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val pagerState = rememberPagerState(
+        initialPage = uiState.currentIndex,
+        pageCount = { uiState.feeds.size },
+    )
+    val railState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    // 双向同步：滑动 pager → 选中 feed 并让 chip 滚入视野；点 chip → 翻页（见下方 onClick）
+    LaunchedEffect(pagerState.currentPage) {
+        viewModel.selectFeed(pagerState.currentPage)
+        val target = pagerState.currentPage.coerceIn(0, (uiState.feeds.lastIndex).coerceAtLeast(0))
+        railState.animateScrollToItem(target)
+    }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("V2EX", fontWeight = FontWeight.Bold) }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("V2EX", style = MaterialTheme.typography.headlineMedium) },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                ),
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = onComposeClick) {
                 Icon(Icons.Filled.Edit, contentDescription = "写新话题")
             }
         },
     ) { innerPadding ->
-        PullToRefreshBox(
-            isRefreshing = uiState.isLoading,
-            onRefresh = viewModel::refresh,
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            LazyColumn(
+            LazyRow(
+                state = railState,
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                itemsIndexed(uiState.feeds, key = { _, feed -> feed.key }) { index, feed ->
+                    FilterChip(
+                        selected = index == pagerState.currentPage,
+                        onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
+                        label = { Text(feed.title) },
+                    )
+                }
+            }
+            HorizontalPager(
+                state = pagerState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp),
-            ) {
-                items(uiState.topics, key = { it.id }) { topic ->
-                    TopicRow(topic = topic, onClick = { onTopicClick(topic.id) })
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TopicRow(topic: Topic, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Avatar(username = topic.authorName, url = topic.member?.avatarUrl, size = 40.dp)
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = topic.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Row(
-                modifier = Modifier.padding(top = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (topic.nodeTitle.isNotBlank()) {
-                    NodeTag(topic.nodeTitle)
-                    Spacer(modifier = Modifier.width(6.dp))
-                }
-                Text(
-                    text = listOfNotNull(
-                        topic.authorName.ifBlank { null },
-                        relativeTimeText(topic.activityTimestamp).ifBlank { null },
-                    ).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
+                key = { page -> uiState.feeds.getOrNull(page)?.key ?: "page-$page" },
+            ) { page ->
+                val feed = uiState.feeds.getOrNull(page) ?: return@HorizontalPager
+                FeedPage(
+                    topics = uiState.topicsByFeed[feed.key],
+                    isLoading = feed.key in uiState.loadingFeeds,
+                    error = uiState.errorsByFeed[feed.key],
+                    featuredBadge = if (feed == HomeFeed.Hot) "今日最热" else "最新活跃",
+                    // 下拉刷新只对当前页生效，避免多个分页容器同时争抢
+                    onRefresh = {
+                        if (pagerState.currentPage == page) viewModel.refresh(feed)
+                    },
+                    onTopicClick = onTopicClick,
                 )
-                if (topic.replies > 0) {
-                    Icon(
-                        Icons.Filled.Forum,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(end = 3.dp).width(14.dp),
-                    )
-                    Text(
-                        text = "${topic.replies}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
         }
     }
 }
 
 @Composable
-private fun NodeTag(title: String) {
-    Surface(
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        shape = RoundedCornerShape(4.dp),
+private fun FeedPage(
+    topics: List<Topic>?,
+    isLoading: Boolean,
+    error: String?,
+    featuredBadge: String,
+    onRefresh: () -> Unit,
+    onTopicClick: (Long) -> Unit,
+) {
+    PullToRefreshBox(
+        isRefreshing = isLoading && topics != null,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize(),
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-        )
+        when {
+            topics == null && isLoading -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+            topics == null -> {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = error ?: "加载失败",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 32.dp),
+                    )
+                    Button(onClick = onRefresh, modifier = Modifier.padding(top = 12.dp)) {
+                        Text("重试")
+                    }
+                }
+            }
+            topics.isEmpty() -> {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    item {
+                        Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "暂无话题",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            else -> {
+                // 灰底白卡布局：首条话题渲染为精选头卡，其余合成一张分组卡片
+                val featured = topics.first()
+                val rest = topics.drop(1)
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    item(key = "featured-${featured.id}") {
+                        FeaturedTopicCard(
+                            topic = featured,
+                            badge = featuredBadge,
+                            onClick = { onTopicClick(featured.id) },
+                            modifier = Modifier.padding(bottom = 10.dp),
+                        )
+                    }
+                    itemsIndexed(rest, key = { _, topic -> topic.id }) { index, topic ->
+                        CardGroupItem(position = cardGroupPosition(index, rest.lastIndex)) {
+                            CardTopicRow(topic = topic, onClick = { onTopicClick(topic.id) })
+                        }
+                    }
+                }
+            }
+        }
     }
 }

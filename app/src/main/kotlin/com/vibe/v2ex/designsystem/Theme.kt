@@ -62,31 +62,60 @@ private val CANVAS_DARK = Color(0xFF0A0A0B) // fixed across all palettes
 
 private fun colorScheme(theme: AppTheme, dark: Boolean): ColorScheme {
     val p = PALETTES.getValue(theme)
+    // accentSoft/accentWash from the iOS spec: accent at 10%/16% (light/dark) over the canvas.
     return if (dark) {
+        val accentSoft = p.accentDark.copy(alpha = 0.16f).compositeOverColor(CARD_DARK)
         darkColorScheme(
             primary = p.accentDark,
             onPrimary = Color.White,
+            primaryContainer = accentSoft,
+            onPrimaryContainer = p.accentDark,
             secondary = p.secondaryDark,
+            secondaryContainer = accentSoft,
+            onSecondaryContainer = p.accentDark,
             tertiary = p.accentDeepDark,
             background = CANVAS_DARK,
             surface = CARD_DARK,
+            surfaceVariant = Color(0xFF1E1E21),
+            surfaceContainer = Color(0xFF1A1A1D),
+            surfaceContainerHigh = Color(0xFF222225),
             onBackground = INK_DARK,
             onSurface = INK_DARK,
             onSurfaceVariant = BODY_DARK,
+            outlineVariant = INK_DARK.copy(alpha = 0.10f).compositeOverColor(CARD_DARK),
         )
     } else {
+        val accentSoft = p.accentLight.copy(alpha = 0.10f).compositeOverColor(CARD_LIGHT)
         lightColorScheme(
             primary = p.accentLight,
             onPrimary = Color.White,
+            primaryContainer = accentSoft,
+            onPrimaryContainer = p.accentDeepLight,
             secondary = p.secondaryLight,
+            secondaryContainer = accentSoft,
+            onSecondaryContainer = p.accentDeepLight,
             tertiary = p.accentDeepLight,
             background = p.canvasLight,
             surface = CARD_LIGHT,
+            surfaceVariant = Color(0xFFECECEF),
+            surfaceContainer = Color(0xFFF4F4F6),
+            surfaceContainerHigh = Color(0xFFECECEF),
             onBackground = INK_LIGHT,
             onSurface = INK_LIGHT,
             onSurfaceVariant = BODY_LIGHT,
+            outlineVariant = INK_LIGHT.copy(alpha = 0.07f).compositeOverColor(CARD_LIGHT),
         )
     }
+}
+
+/** Flattens a translucent color over an opaque base so M3 containers stay opaque. */
+private fun Color.compositeOverColor(base: Color): Color {
+    val a = alpha
+    return Color(
+        red = red * a + base.red * (1 - a),
+        green = green * a + base.green * (1 - a),
+        blue = blue * a + base.blue * (1 - a),
+    )
 }
 
 @Composable
@@ -102,7 +131,7 @@ fun V2exTheme(
     }
     MaterialTheme(
         colorScheme = colorScheme(appTheme, dark),
-        typography = MaterialTheme.typography,
+        typography = V2exTypography,
         content = content,
     )
 }

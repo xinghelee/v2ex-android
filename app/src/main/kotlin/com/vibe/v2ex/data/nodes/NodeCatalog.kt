@@ -66,6 +66,7 @@ object NodeCatalog {
     private val seedTitles: Map<String, String> = mapOf(
         "programmer" to "程序员", "python" to "Python", "linux" to "Linux", "create" to "分享创造",
         "apple" to "Apple", "qna" to "问与答", "jobs" to "职场话题", "life" to "生活",
+        "coffee" to "咖啡", "autistic" to "自言自语",
     )
 
     fun displayName(nodeName: String, liveNodes: Map<String, String> = emptyMap()): String =

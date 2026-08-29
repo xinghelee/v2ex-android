@@ -17,4 +17,8 @@ class NodesRepository @Inject constructor(
     }
 
     suspend fun node(name: String): Result<Node> = runCatching { apiV1.showNode(name) }
+
+    /** Best-effort name→title map from the in-memory cache — no network, empty until warmed. */
+    fun cachedTitleMap(): Map<String, String> =
+        cachedNodes?.associate { it.name to it.title } ?: emptyMap()
 }

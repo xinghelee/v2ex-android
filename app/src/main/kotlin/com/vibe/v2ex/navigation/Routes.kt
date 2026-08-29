@@ -14,6 +14,7 @@ sealed interface Route {
     @Serializable data object Login : Route
     @Serializable data class Write(val topicId: Long? = null) : Route
     @Serializable data object Settings : Route
+    @Serializable data object Moderation : Route
     @Serializable data class Member(val username: String) : Route
 }
 

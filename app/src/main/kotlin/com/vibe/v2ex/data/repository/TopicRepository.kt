@@ -8,8 +8,12 @@ import com.vibe.v2ex.data.remote.V2exApiV2
 import com.vibe.v2ex.data.remote.WebSessionService
 import kotlin.math.ceil
 import kotlin.math.min
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,6 +28,7 @@ class TopicRepository @Inject constructor(
     private val apiV2: V2exApiV2,
     private val webSessionService: WebSessionService,
     private val secureStore: SecureStore,
+    private val okHttpClient: OkHttpClient,
 ) {
     suspend fun loadTopic(topicId: Long): Result<TopicDetail> = runCatching {
         val hasToken = !secureStore.personalAccessToken.isNullOrBlank()
@@ -62,4 +67,23 @@ class TopicRepository @Inject constructor(
 
     suspend fun setFavorite(topicId: Long, favorited: Boolean): Result<Unit> =
         webSessionService.setFavoriteTopic(topicId, favorited)
+
+    /**
+     * Server-authoritative favorite state, scraped off the topic page (no API field exists).
+     * null = undeterminable (logged out, network error) — callers keep their current state.
+     */
+    suspend fun fetchFavoriteState(topicId: Long): Boolean? = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = Request.Builder().url("https://www.v2ex.com/t/$topicId").build()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val html = response.body?.string().orEmpty()
+                when {
+                    html.contains("/unfavorite/topic/$topicId") -> true
+                    html.contains("/favorite/topic/$topicId") || html.contains("加入收藏") -> false
+                    else -> null
+                }
+            }
+        }.getOrNull()
+    }
 }
