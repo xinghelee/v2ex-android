@@ -32,6 +32,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 
 /**
@@ -46,7 +47,6 @@ fun ContentBlocksView(
     textStyle: TextStyle = MaterialTheme.typography.bodyMedium,
 ) {
     val linkColor = MaterialTheme.colorScheme.primary
-    val insetColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
     SelectionContainer(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             blocks.forEach { block ->
@@ -55,8 +55,8 @@ fun ContentBlocksView(
                         text = block.text.withLinkColor(linkColor),
                         style = textStyle,
                     )
-                    is ContentBlock.Code -> CodeBlock(block.code, insetColor)
-                    is ContentBlock.Quote -> QuoteBlock(block.text.withLinkColor(linkColor), textStyle, insetColor)
+                    is ContentBlock.Code -> CodeBlock(block.code)
+                    is ContentBlock.Quote -> QuoteBlock(block.text.withLinkColor(linkColor), textStyle)
                     is ContentBlock.ListBlock -> ListBlockView(block.items, textStyle, linkColor)
                     is ContentBlock.Image -> ContentImage(block.url)
                     ContentBlock.Rule -> HorizontalDivider(
@@ -68,40 +68,47 @@ fun ContentBlocksView(
     }
 }
 
+/** 代码块（设计稿）：#F7F7F9 / 深色 #2C2C2E 底，圆角 12，等宽 13sp，无边框。 */
 @Composable
-private fun CodeBlock(code: String, background: Color) {
-    Surface(color = background, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+private fun CodeBlock(code: String) {
+    Surface(
+        color = if (LocalV2Dark.current) V2Colors.CodeBgDark else V2Colors.CodeBgLight,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Text(
             text = code,
-            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontFamily = FontFamily.Monospace,
+                lineHeight = 21.sp,
+            ),
             softWrap = false,
             modifier = Modifier
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
         )
     }
 }
 
+/** 引用块（设计稿）：左竖线 2.5dp accent 35%，引文 muted，无底色。 */
 @Composable
-private fun QuoteBlock(text: AnnotatedString, textStyle: TextStyle, background: Color) {
+private fun QuoteBlock(text: AnnotatedString, textStyle: TextStyle) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .clip(RoundedCornerShape(6.dp))
-            .background(background),
+            .height(IntrinsicSize.Min),
     ) {
         Box(
             modifier = Modifier
-                .width(3.dp)
+                .width(2.5.dp)
                 .fillMaxHeight()
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
         )
         Text(
             text = text,
-            style = textStyle,
+            style = textStyle.copy(fontSize = 14.sp, lineHeight = 20.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
         )
     }
 }

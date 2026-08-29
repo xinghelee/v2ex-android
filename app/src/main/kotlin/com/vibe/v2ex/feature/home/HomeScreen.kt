@@ -1,31 +1,35 @@
 package com.vibe.v2ex.feature.home
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +38,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -41,14 +47,20 @@ import com.vibe.v2ex.data.model.Topic
 import com.vibe.v2ex.designsystem.CardGroupItem
 import com.vibe.v2ex.designsystem.CardTopicRow
 import com.vibe.v2ex.designsystem.FeaturedTopicCard
+import com.vibe.v2ex.designsystem.GlassCircleButton
+import com.vibe.v2ex.designsystem.LocalV2Dark
 import com.vibe.v2ex.designsystem.cardGroupPosition
 import kotlinx.coroutines.launch
+
+/** 各 tab 列表的底部留白（底栏为常规通栏，由 Scaffold 占位，这里只留呼吸空间）。 */
+val TAB_BAR_CLEARANCE = 16.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onTopicClick: (Long) -> Unit,
     onComposeClick: () -> Unit,
+    onSearchClick: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -59,64 +71,115 @@ fun HomeScreen(
     val railState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // 双向同步：滑动 pager → 选中 feed 并让 chip 滚入视野；点 chip → 翻页（见下方 onClick）
     LaunchedEffect(pagerState.currentPage) {
         viewModel.selectFeed(pagerState.currentPage)
         val target = pagerState.currentPage.coerceIn(0, (uiState.feeds.lastIndex).coerceAtLeast(0))
         railState.animateScrollToItem(target)
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("V2EX", style = MaterialTheme.typography.headlineMedium) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = onComposeClick) {
-                Icon(Icons.Filled.Edit, contentDescription = "写新话题")
-            }
-        },
-    ) { innerPadding ->
-        Column(
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding(),
+    ) {
+        // 大标题 + 玻璃搜索圆钮 + accent 发布圆钮（设计稿 01 顶栏）
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            LazyRow(
-                state = railState,
-                contentPadding = PaddingValues(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                itemsIndexed(uiState.feeds, key = { _, feed -> feed.key }) { index, feed ->
-                    FilterChip(
-                        selected = index == pagerState.currentPage,
-                        onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
-                        label = { Text(feed.title) },
-                    )
-                }
-            }
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize(),
-                key = { page -> uiState.feeds.getOrNull(page)?.key ?: "page-$page" },
-            ) { page ->
-                val feed = uiState.feeds.getOrNull(page) ?: return@HorizontalPager
-                FeedPage(
-                    topics = uiState.topicsByFeed[feed.key],
-                    isLoading = feed.key in uiState.loadingFeeds,
-                    error = uiState.errorsByFeed[feed.key],
-                    featuredBadge = if (feed == HomeFeed.Hot) "今日最热" else "最新活跃",
-                    // 下拉刷新只对当前页生效，避免多个分页容器同时争抢
-                    onRefresh = {
-                        if (pagerState.currentPage == page) viewModel.refresh(feed)
-                    },
-                    onTopicClick = onTopicClick,
+            Text(
+                text = "V2EX",
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f),
+            )
+            GlassCircleButton(onClick = onSearchClick) {
+                Icon(
+                    Icons.Filled.Search,
+                    contentDescription = "搜索",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(19.dp),
                 )
             }
+            Spacer(Modifier.width(8.dp))
+            GlassCircleButton(onClick = onComposeClick, accent = true) {
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = "写新话题",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+
+        FeedChipRail(
+            feeds = uiState.feeds,
+            selectedIndex = pagerState.currentPage,
+            railState = railState,
+            onSelect = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
+        )
+
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            key = { page -> uiState.feeds.getOrNull(page)?.key ?: "page-$page" },
+        ) { page ->
+            val feed = uiState.feeds.getOrNull(page) ?: return@HorizontalPager
+            FeedPage(
+                topics = uiState.topicsByFeed[feed.key],
+                isLoading = feed.key in uiState.loadingFeeds,
+                error = uiState.errorsByFeed[feed.key],
+                featuredBadge = if (feed == HomeFeed.Hot) "今日最热" else "最新活跃",
+                onRefresh = {
+                    if (pagerState.currentPage == page) viewModel.refresh(feed)
+                },
+                onTopicClick = onTopicClick,
+            )
+        }
+    }
+}
+
+/** 分类 chip 栏：选中 = accent 底白字圆角 16；未选 = 白 80% 底（设计稿）。 */
+@Composable
+private fun FeedChipRail(
+    feeds: List<HomeFeed>,
+    selectedIndex: Int,
+    railState: androidx.compose.foundation.lazy.LazyListState,
+    onSelect: (Int) -> Unit,
+) {
+    val dark = LocalV2Dark.current
+    LazyRow(
+        state = railState,
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
+    ) {
+        itemsIndexed(feeds, key = { _, feed -> feed.key }) { index, feed ->
+            val selected = index == selectedIndex
+            Text(
+                text = feed.title,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                color = when {
+                    selected -> Color.White
+                    dark -> MaterialTheme.colorScheme.onSurfaceVariant
+                    else -> Color(0xFF3C3C43)
+                },
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        when {
+                            selected -> MaterialTheme.colorScheme.primary
+                            dark -> Color(0xFF1C1C1E).copy(alpha = 0.9f)
+                            else -> Color.White.copy(alpha = 0.85f)
+                        },
+                    )
+                    .clickable { onSelect(index) }
+                    .padding(horizontal = 15.dp, vertical = 7.dp),
+            )
         }
     }
 }
@@ -172,12 +235,15 @@ private fun FeedPage(
                 }
             }
             else -> {
-                // 灰底白卡布局：首条话题渲染为精选头卡，其余合成一张分组卡片
                 val featured = topics.first()
                 val rest = topics.drop(1)
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        bottom = TAB_BAR_CLEARANCE,
+                    ),
                 ) {
                     item(key = "featured-${featured.id}") {
                         FeaturedTopicCard(

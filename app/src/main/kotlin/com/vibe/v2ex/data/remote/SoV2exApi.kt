@@ -38,11 +38,17 @@ data class SoV2exSource(
     val id: Long = 0,
     val title: String = "",
     val content: String = "",
-    val node: String? = null,
+    /** 可能是节点名字符串，也可能是数字 node id — 用 JsonPrimitive 兼容两种。 */
+    val node: kotlinx.serialization.json.JsonPrimitive? = null,
     val member: String? = null,
     val replies: Int = 0,
-    val created: Long? = null,
-)
+    /** ISO8601 字符串（非 epoch）。 */
+    val created: String? = null,
+) {
+    /** 仅当 node 是字符串名时返回，数字 id 无法本地映射则为 null。 */
+    val nodeName: String?
+        get() = node?.takeUnless { it.isString.not() }?.content
+}
 
 @Serializable
 data class SoV2exHighlight(

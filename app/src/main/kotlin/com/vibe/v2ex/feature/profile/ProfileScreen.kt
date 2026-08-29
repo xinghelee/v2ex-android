@@ -1,49 +1,61 @@
 package com.vibe.v2ex.feature.profile
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material3.Card
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vibe.v2ex.data.model.Member
 import com.vibe.v2ex.data.model.Topic
 import com.vibe.v2ex.designsystem.Avatar
+import com.vibe.v2ex.designsystem.GlassCircleButton
+import com.vibe.v2ex.designsystem.LocalV2Dark
+import com.vibe.v2ex.designsystem.SectionHeader
+import com.vibe.v2ex.designsystem.V2Card
+import com.vibe.v2ex.designsystem.V2Colors
 import com.vibe.v2ex.designsystem.relativeTimeText
+import com.vibe.v2ex.designsystem.topicRowTitle
+import com.vibe.v2ex.feature.home.TAB_BAR_CLEARANCE
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,33 +70,48 @@ fun ProfileScreen(
     // 每次回到本页（含从「账号」返回后）重新检查 Token 并刷新资料。
     LaunchedEffect(Unit) { viewModel.refresh() }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("我", fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = onSettingsClick) {
-                        Icon(Icons.Filled.Settings, contentDescription = "外观与阅读设置")
-                    }
-                },
-            )
-        },
-    ) { innerPadding ->
-        Column(
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        // 大标题 + 玻璃设置圆钮（设计稿 08 顶栏）
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "我的",
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f),
+            )
+            GlassCircleButton(onClick = onSettingsClick) {
+                Icon(
+                    Icons.Filled.Settings,
+                    contentDescription = "外观与阅读设置",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(19.dp),
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             when {
                 uiState.isTokenSet && uiState.member != null -> {
-                    MemberCard(member = uiState.member!!)
+                    MemberHeaderCard(member = uiState.member!!, uiState = uiState)
                 }
                 uiState.isTokenSet && uiState.isLoading -> {
-                    Card(modifier = Modifier.fillMaxWidth()) {
+                    V2Card {
                         Row(
-                            modifier = Modifier.padding(16.dp),
+                            modifier = Modifier.padding(18.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -94,12 +121,12 @@ fun ProfileScreen(
                     }
                 }
                 uiState.isTokenSet -> {
-                    Card(modifier = Modifier.fillMaxWidth()) {
+                    V2Card {
                         Text(
                             text = uiState.error?.let { "资料加载失败：$it" } ?: "资料加载失败，下拉或重进本页重试",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(16.dp),
+                            modifier = Modifier.padding(18.dp),
                         )
                     }
                 }
@@ -108,87 +135,161 @@ fun ProfileScreen(
                 }
             }
 
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp)
-                    .clickable(onClick = onLoginClick),
-            ) {
-                ListItem(
-                    headlineContent = { Text("账号") },
-                    supportingContent = { Text("登录网页会话 · 设置 Personal Access Token") },
-                    leadingContent = { Icon(Icons.Filled.AccountCircle, contentDescription = null) },
-                    trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
+            // iOS 分组列表（设计稿 08 第二张卡）
+            V2Card {
+                SettingsListRow(
+                    iconColor = Color(0xFF1C7C6B),
+                    icon = Icons.Filled.Person,
+                    title = "账号",
+                    onClick = onLoginClick,
+                    showChevron = true,
+                )
+                RowDivider()
+                SettingsListRow(
+                    iconColor = V2Colors.Amber,
+                    icon = Icons.Filled.Star,
+                    title = "我的收藏",
+                    detail = "${uiState.favoriteCount}",
+                    showChevron = false,
+                )
+                RowDivider()
+                SettingsListRow(
+                    iconColor = Color(0xFF8E5A9E),
+                    icon = Icons.Filled.Block,
+                    title = "屏蔽的关键词与用户",
+                    detail = "${uiState.moderationCount}",
+                    onClick = onModerationClick,
+                    showChevron = true,
                 )
             }
+        }
 
-            if (uiState.recentTopics.isNotEmpty()) {
-                SectionLabel("最近发布")
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column {
-                        uiState.recentTopics.forEachIndexed { index, topic ->
-                            if (index > 0) HorizontalDivider()
-                            RecentTopicRow(topic)
-                        }
+        if (uiState.recentTopics.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(21.dp))
+            SectionHeader("最近发布")
+            V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+                uiState.recentTopics.forEachIndexed { index, topic ->
+                    if (index > 0) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 16.dp),
+                            thickness = 0.5.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                        )
+                    }
+                    RecentTopicRow(topic)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(TAB_BAR_CLEARANCE))
+    }
+}
+
+/** 会员头卡（设计稿 08）：60dp 渐变身份方块 + 名字 + 简介 + 三块统计瓦片。 */
+@Composable
+private fun MemberHeaderCard(member: Member, uiState: ProfileUiState) {
+    val dark = LocalV2Dark.current
+    V2Card {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (member.avatarUrl != null) {
+                    Avatar(username = member.username, url = member.avatarUrl, size = 60.dp)
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(60.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFF1C7C6B), Color(0xFF14584D)),
+                                ),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = member.username.take(2).lowercase().ifBlank { "?" },
+                            color = Color.White,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = member.username,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.5).sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    val subtitle = memberSubtitle(member)
+                    if (subtitle.isNotBlank()) {
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 3.dp),
+                        )
                     }
                 }
             }
-
-            SectionLabel("我的内容")
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column {
-                    StatRow(icon = Icons.Filled.Bookmark, label = "收藏", count = uiState.favoriteCount)
-                    HorizontalDivider()
-                    StatRow(icon = Icons.Filled.History, label = "浏览历史", count = uiState.historyCount)
-                    HorizontalDivider()
-                    StatRow(
-                        icon = Icons.Filled.Shield,
-                        label = "内容与屏蔽",
-                        count = uiState.moderationCount,
-                        onClick = onModerationClick,
-                    )
-                }
+            val bio = listOfNotNull(member.bio, member.tagline).firstOrNull { it.isNotBlank() }
+            if (bio != null) {
+                Text(
+                    text = bio,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (dark) MaterialTheme.colorScheme.onSurfaceVariant else V2Colors.SecondaryLabelLight,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatTile(number = "${uiState.favoriteCount}", label = "收藏", modifier = Modifier.weight(1f))
+                StatTile(number = "${uiState.historyCount}", label = "历史", modifier = Modifier.weight(1f))
+                StatTile(
+                    number = "${uiState.moderationCount}",
+                    label = "屏蔽",
+                    numberColor = V2Colors.Amber,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }
 }
 
+/** 统计瓦片：canvas 底 圆角 14，数字 19sp/700 + 12sp muted 标签。 */
 @Composable
-private fun MemberCard(member: Member) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Avatar(username = member.username, url = member.avatarUrl, size = 56.dp)
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = member.username,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                val subtitle = memberSubtitle(member)
-                if (subtitle.isNotBlank()) {
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
-                val bio = listOfNotNull(member.bio, member.tagline).firstOrNull { it.isNotBlank() }
-                if (bio != null) {
-                    Text(
-                        text = bio,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            }
-        }
+private fun StatTile(
+    number: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    numberColor: Color = MaterialTheme.colorScheme.onSurface,
+) {
+    val dark = LocalV2Dark.current
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (dark) Color(0xFF2C2C2E) else V2Colors.CanvasLight)
+            .padding(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = number,
+            fontSize = 19.sp,
+            fontWeight = FontWeight.Bold,
+            color = numberColor,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Normal,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -206,83 +307,110 @@ private fun memberSubtitle(member: Member): String {
 
 @Composable
 private fun NotConnectedCard(onLoginClick: () -> Unit) {
-    Column {
-        Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onLoginClick)) {
-            ListItem(
-                headlineContent = { Text("未连接账号") },
-                supportingContent = { Text("前往 账号 设置 Personal Access Token 后查看资料") },
-                leadingContent = { Icon(Icons.Filled.AccountCircle, contentDescription = null) },
-                trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
+    V2Card {
+        Column(
+            modifier = Modifier
+                .clickable(onClick = onLoginClick)
+                .padding(18.dp),
+        ) {
+            Text(
+                text = "未连接账号",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "前往 账号 设置 Personal Access Token 后查看资料。登录后可查看通知、个人资料、我的话题，并在 app 内直接回复、收藏。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
             )
         }
-        Text(
-            text = "登录后可查看通知、个人资料、我的话题，并在 app 内直接回复、收藏",
-            modifier = Modifier.padding(top = 12.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
+}
+
+/** iOS 设置行：30dp 彩色圆角 8 图标方块 + 17sp 标题 + 右 detail/chevron，min 52dp。 */
+@Composable
+private fun SettingsListRow(
+    iconColor: Color,
+    icon: ImageVector,
+    title: String,
+    detail: String? = null,
+    onClick: (() -> Unit)? = null,
+    showChevron: Boolean = true,
+) {
+    val rowModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    Row(
+        modifier = rowModifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(iconColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+        }
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        if (detail != null) {
+            Text(
+                text = detail,
+                fontSize = 15.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (showChevron) {
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+/** 行间分割线（inset 58 = 16 + 30 + 12）。 */
+@Composable
+private fun RowDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 58.dp),
+        thickness = 0.5.dp,
+        color = MaterialTheme.colorScheme.outlineVariant,
+    )
 }
 
 @Composable
 private fun RecentTopicRow(topic: Topic) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp)) {
         Text(
             text = topic.title,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.topicRowTitle,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         val meta = listOfNotNull(
             topic.nodeTitle.ifBlank { null },
             relativeTimeText(topic.activityTimestamp).ifBlank { null },
+            topic.replies.takeIf { it > 0 }?.let { "$it 回复" },
         ).joinToString(" · ")
         if (meta.isNotBlank()) {
             Text(
                 text = meta,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp),
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
     }
-}
-
-@Composable
-private fun StatRow(icon: ImageVector, label: String, count: Int, onClick: (() -> Unit)? = null) {
-    val rowModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
-    ListItem(
-        modifier = rowModifier,
-        headlineContent = { Text(label) },
-        leadingContent = { Icon(icon, contentDescription = null) },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "$count",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (count > 0) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-                if (onClick != null) {
-                    Icon(
-                        Icons.Filled.ChevronRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        },
-    )
-}
-
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
-    )
 }

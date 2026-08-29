@@ -9,6 +9,7 @@ import com.vibe.v2ex.data.model.Topic
 import com.vibe.v2ex.data.nodes.NodeCatalog
 import com.vibe.v2ex.data.remote.V2exApiV1
 import com.vibe.v2ex.data.remote.V2exApiV2
+import com.vibe.v2ex.data.repository.NodesRepository
 import com.vibe.v2ex.navigation.Route
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,10 @@ enum class NodeTopicsSort(val label: String) {
 data class NodeTopicsUiState(
     val nodeName: String = "",
     val nodeTitle: String = "",
+    /** 节点简介（v1 show.json 的 header，HTML）；无则不显示。 */
+    val nodeHeader: String? = null,
+    val topicsCount: Int? = null,
+    val starsCount: Int? = null,
     val raw: List<Topic> = emptyList(),
     val sort: NodeTopicsSort = NodeTopicsSort.LAST_REPLY,
     val isLoading: Boolean = false,
@@ -54,6 +59,7 @@ class NodeTopicsViewModel @Inject constructor(
     private val apiV1: V2exApiV1,
     private val apiV2: V2exApiV2,
     private val followedNodesStore: FollowedNodesStore,
+    private val nodesRepository: NodesRepository,
 ) : ViewModel() {
     private val nodeName: String = savedStateHandle.toRoute<Route.NodeTopics>().nodeName
 
@@ -69,9 +75,26 @@ class NodeTopicsViewModel @Inject constructor(
 
     init {
         refresh()
+        loadNodeInfo()
         viewModelScope.launch {
             followedNodesStore.names.collect { names ->
                 _uiState.update { it.copy(isFollowed = nodeName in names) }
+            }
+        }
+    }
+
+    /** 节点详情（简介 + 话题/关注数）— 失败静默，头卡只是少一段文案。 */
+    private fun loadNodeInfo() {
+        viewModelScope.launch {
+            nodesRepository.node(nodeName).onSuccess { node ->
+                _uiState.update { state ->
+                    state.copy(
+                        nodeTitle = node.title.takeIf(String::isNotBlank) ?: state.nodeTitle,
+                        nodeHeader = node.header?.takeIf(String::isNotBlank),
+                        topicsCount = node.topics,
+                        starsCount = node.stars,
+                    )
+                }
             }
         }
     }

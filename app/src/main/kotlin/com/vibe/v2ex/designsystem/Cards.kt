@@ -2,16 +2,16 @@ package com.vibe.v2ex.designsystem
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Chat
-import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -19,15 +19,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.vibe.v2ex.data.model.Topic
 
-/**
- * 灰底白卡的卡片容器 — 对应 iOS 的 TopicListCard/CardSection。
- * 内容行之间用行内分割线，整卡圆角 20。
- */
+/** 白卡容器 — 设计稿圆角 22。 */
 @Composable
 fun V2Card(
     modifier: Modifier = Modifier,
@@ -35,125 +33,14 @@ fun V2Card(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(22.dp),
         color = MaterialTheme.colorScheme.surface,
     ) {
         Column { content() }
     }
 }
 
-/** 节点标签 pill：主色软底 + 深主色文字。 */
-@Composable
-fun NodePill(title: String, modifier: Modifier = Modifier) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSecondaryContainer,
-        maxLines = 1,
-        modifier = modifier
-            .clip(RoundedCornerShape(5.dp))
-            .background(MaterialTheme.colorScheme.secondaryContainer)
-            .padding(horizontal = 6.dp, vertical = 2.dp),
-    )
-}
-
-/** 回复数小胶囊。 */
-@Composable
-fun ReplyCountBadge(count: Int, modifier: Modifier = Modifier) {
-    if (count <= 0) return
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 8.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            Icons.AutoMirrored.Outlined.Chat,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(13.dp),
-        )
-        Spacer(Modifier.width(4.dp))
-        Text(
-            text = "$count",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-/**
- * 信息流顶部的精选头卡 — iOS FeaturedTopicCard 的移植：
- * 徽章（今日最热 / 最新活跃）+ 放大标题 + 摘要 + 作者行。
- */
-@Composable
-fun FeaturedTopicCard(
-    topic: Topic,
-    badge: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surface,
-        onClick = onClick,
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = badge,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-                Spacer(Modifier.weight(1f))
-                if (topic.nodeTitle.isNotBlank()) NodePill(topic.nodeTitle)
-            }
-            Text(
-                text = topic.title,
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-            if (topic.excerpt.isNotBlank()) {
-                Text(
-                    text = topic.excerpt,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-            Row(
-                modifier = Modifier.padding(top = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Avatar(username = topic.authorName, url = topic.member?.avatarUrl, size = 24.dp)
-                Text(
-                    text = listOfNotNull(
-                        topic.authorName.ifBlank { null },
-                        relativeTimeText(topic.activityTimestamp).ifBlank { null },
-                    ).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 8.dp).weight(1f),
-                )
-                ReplyCountBadge(topic.replies)
-            }
-        }
-    }
-}
-
-/** 懒加载列表里的"分组卡片"行位置 — 首行圆上角、末行圆下角，中间行方角，保持整卡观感又不破坏 LazyColumn 惰性。 */
+/** 懒列表分组卡片的行位置：首行圆上角、末行圆下角，保持整卡观感不破坏惰性。 */
 enum class CardGroupPosition { FIRST, MIDDLE, LAST, SINGLE }
 
 fun cardGroupPosition(index: Int, lastIndex: Int): CardGroupPosition = when {
@@ -167,9 +54,10 @@ fun cardGroupPosition(index: Int, lastIndex: Int): CardGroupPosition = when {
 fun CardGroupItem(
     position: CardGroupPosition,
     modifier: Modifier = Modifier,
+    dividerInset: androidx.compose.ui.unit.Dp = 62.dp,
     content: @Composable () -> Unit,
 ) {
-    val radius = 20.dp
+    val radius = 22.dp
     val shape = when (position) {
         CardGroupPosition.SINGLE -> RoundedCornerShape(radius)
         CardGroupPosition.FIRST -> RoundedCornerShape(topStart = radius, topEnd = radius)
@@ -184,21 +72,166 @@ fun CardGroupItem(
     ) {
         content()
         if (position == CardGroupPosition.FIRST || position == CardGroupPosition.MIDDLE) {
-            androidx.compose.material3.HorizontalDivider(
-                modifier = Modifier.padding(start = 66.dp),
+            HorizontalDivider(
+                modifier = Modifier.padding(start = dividerInset),
+                thickness = 0.5.dp,
                 color = MaterialTheme.colorScheme.outlineVariant,
             )
         }
     }
 }
 
-/** 卡片内的标准话题行 — 供 Home / 节点 / 收藏 / 历史等列表共用。 */
+/** 精选卡上的节点 pill：accent 文字 + accentSoft 底，圆角 7。 */
+@Composable
+fun NodePill(title: String, modifier: Modifier = Modifier) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
+        maxLines = 1,
+        modifier = modifier
+            .clip(RoundedCornerShape(7.dp))
+            .background(V2Colors.accentSoft(LocalV2Dark.current))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
+}
+
+/** 列表行 meta：`节点名(accent) · 作者 · 时间`，节点为纯彩色文字（设计稿列表行形态）。 */
+@Composable
+fun TopicMetaLine(topic: Topic, modifier: Modifier = Modifier, showAuthor: Boolean = true) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        if (topic.nodeTitle.isNotBlank()) {
+            Text(
+                text = topic.nodeTitle,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+            )
+            MetaDot()
+        }
+        Text(
+            text = listOfNotNull(
+                topic.authorName.takeIf { showAuthor && it.isNotBlank() },
+                relativeTimeText(topic.activityTimestamp).ifBlank { null },
+            ).joinToString(" · "),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Normal,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun MetaDot() {
+    Text(
+        text = " · ",
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.outline,
+    )
+}
+
+/** 回复数：纯数字，14sp/600 muted，右对齐（设计稿不用胶囊）。 */
+@Composable
+fun ReplyCount(count: Int, modifier: Modifier = Modifier) {
+    if (count <= 0) return
+    Text(
+        text = "$count",
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier,
+    )
+}
+
+/**
+ * 精选头卡（设计稿 01 首页首条）：节点 pill + 徽章文字、21sp 标题、摘要、
+ * 24dp 身份方块作者行、右下角回复数。
+ */
+@Composable
+fun FeaturedTopicCard(
+    topic: Topic,
+    badge: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surface,
+        onClick = onClick,
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (topic.nodeTitle.isNotBlank()) {
+                    NodePill(topic.nodeTitle)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    text = badge,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = topic.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 10.dp),
+            )
+            if (topic.excerpt.isNotBlank()) {
+                Text(
+                    text = topic.excerpt,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+            Row(
+                modifier = Modifier.padding(top = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Avatar(username = topic.authorName, url = topic.member?.avatarUrl, size = 24.dp)
+                Text(
+                    text = topic.authorName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+                Text(
+                    text = " · ",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+                Text(
+                    text = relativeTimeText(topic.activityTimestamp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                )
+                ReplyCount(topic.replies)
+            }
+        }
+    }
+}
+
+/**
+ * 分组卡片内的标准话题行（设计稿 01/03）：34dp 身份方块、16sp/500 标题、
+ * accent 节点文字 meta、右侧纯数字回复数。分割线由 CardGroupItem 提供（inset 62）。
+ */
 @Composable
 fun CardTopicRow(
     topic: Topic,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     dimmed: Boolean = false,
+    trailingBadge: (@Composable () -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
@@ -207,13 +240,12 @@ fun CardTopicRow(
             .padding(horizontal = 16.dp, vertical = 13.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Avatar(username = topic.authorName, url = topic.member?.avatarUrl, size = 38.dp)
+        Avatar(username = topic.authorName, url = topic.member?.avatarUrl, size = 34.dp)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = topic.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
+                style = MaterialTheme.typography.topicRowTitle,
                 color = MaterialTheme.colorScheme.onSurface.let {
                     if (dimmed) it.copy(alpha = 0.4f) else it
                 },
@@ -221,26 +253,71 @@ fun CardTopicRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Row(
-                modifier = Modifier.padding(top = 7.dp),
+                modifier = Modifier.padding(top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (topic.nodeTitle.isNotBlank()) {
-                    NodePill(topic.nodeTitle)
-                    Spacer(Modifier.width(7.dp))
+                TopicMetaLine(topic, modifier = Modifier.weight(1f, fill = false), showAuthor = false)
+                trailingBadge?.let {
+                    Spacer(Modifier.width(6.dp))
+                    it()
                 }
-                Text(
-                    text = listOfNotNull(
-                        topic.authorName.ifBlank { null },
-                        relativeTimeText(topic.activityTimestamp).ifBlank { null },
-                    ).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                ReplyCountBadge(topic.replies, modifier = Modifier.padding(start = 8.dp))
             }
         }
+        ReplyCount(topic.replies, modifier = Modifier.padding(start = 10.dp, top = 2.dp))
+    }
+}
+
+/** 分区小标题（rgba(60,60,67,0.6)、13sp、左缩进 32）。 */
+@Composable
+fun SectionHeader(title: String, modifier: Modifier = Modifier, trailing: (@Composable () -> Unit)? = null) {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(start = 32.dp, end = 16.dp, bottom = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        trailing?.invoke()
+    }
+}
+
+/** 离线标记胶囊：`↓ 已离线`，橙字橙soft底。 */
+@Composable
+fun OfflineBadge(modifier: Modifier = Modifier) {
+    Text(
+        text = "↓ 已离线",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.tertiary,
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.tertiaryContainer)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}
+
+/** 玻璃圆钮（顶栏 38dp 圆）：白 90% 底 + 细阴影；主操作形态为纯 accent 底。 */
+@Composable
+fun GlassCircleButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    accent: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    val dark = LocalV2Dark.current
+    Surface(
+        onClick = onClick,
+        modifier = modifier.size(38.dp),
+        shape = androidx.compose.foundation.shape.CircleShape,
+        color = when {
+            accent -> MaterialTheme.colorScheme.primary
+            dark -> Color(0xFF2C2C2E).copy(alpha = 0.92f)
+            else -> Color.White.copy(alpha = 0.92f)
+        },
+        shadowElevation = 2.dp,
+    ) {
+        Box(contentAlignment = Alignment.Center) { content() }
     }
 }

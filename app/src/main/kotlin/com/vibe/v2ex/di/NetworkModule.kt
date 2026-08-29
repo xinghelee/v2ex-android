@@ -45,7 +45,8 @@ object NetworkModule {
         .readTimeout(15, TimeUnit.SECONDS)
         .addInterceptor { chain ->
             val request = chain.request()
-            val token = secureStore.personalAccessToken
+            // 粘贴的 token 可能夹带换行/空格 — 头部值里出现 0x0a 会让 OkHttp 直接抛异常
+            val token = secureStore.personalAccessToken?.filterNot(Char::isWhitespace)
             val authorized = if (!token.isNullOrBlank() && request.url.encodedPath.contains("/api/v2/")) {
                 request.newBuilder().addHeader("Authorization", "Bearer $token").build()
             } else {

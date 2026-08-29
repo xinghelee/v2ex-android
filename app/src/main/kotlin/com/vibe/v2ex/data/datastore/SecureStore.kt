@@ -32,9 +32,13 @@ class SecureStore @Inject constructor(
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )
 
+    /** 入库前剔除所有空白（换行/空格）— 粘贴来的 token 常带尾部换行，进请求头会让 OkHttp 抛异常。 */
     var personalAccessToken: String?
-        get() = prefs.getString(KEY_PAT, null)
-        set(value) = prefs.edit().putString(KEY_PAT, value).apply()
+        get() = prefs.getString(KEY_PAT, null)?.filterNot(Char::isWhitespace)?.ifBlank { null }
+        set(value) {
+            val cleaned = value?.filterNot(Char::isWhitespace)?.ifBlank { null }
+            prefs.edit().putString(KEY_PAT, cleaned).apply()
+        }
 
     var sessionCookieHeader: String?
         get() = prefs.getString(KEY_COOKIES, null)

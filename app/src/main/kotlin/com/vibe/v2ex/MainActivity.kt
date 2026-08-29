@@ -23,7 +23,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val uiState by appViewModel.uiState.collectAsState()
-            V2exTheme(appTheme = uiState.theme, darkModePreference = uiState.darkMode) {
+            V2exTheme(darkModePreference = uiState.darkMode) {
                 if (uiState.agreementAccepted) {
                     V2exApp()
                 } else {
