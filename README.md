@@ -4,6 +4,10 @@
 
 ![手机与折叠屏](docs/screenshots.png)
 
+## 下载
+
+📦 [最新版 APK 下载](https://github.com/xinghelee/v2ex-android/releases/latest)（Android 8.0+，Release 页附 SHA-256 校验值）
+
 ## 功能
 
 ### 浏览
