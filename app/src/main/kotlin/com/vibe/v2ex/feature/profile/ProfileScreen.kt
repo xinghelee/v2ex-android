@@ -19,8 +19,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -63,6 +66,11 @@ fun ProfileScreen(
     onLoginClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onModerationClick: () -> Unit = {},
+    onFavoritesClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onOfflineClick: () -> Unit = {},
+    onMyPostsClick: () -> Unit = {},
+    onTopicClick: (Long) -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -106,7 +114,13 @@ fun ProfileScreen(
         ) {
             when {
                 uiState.isTokenSet && uiState.member != null -> {
-                    MemberHeaderCard(member = uiState.member!!, uiState = uiState)
+                    MemberHeaderCard(
+                        member = uiState.member!!,
+                        uiState = uiState,
+                        onFavoritesClick = onFavoritesClick,
+                        onHistoryClick = onHistoryClick,
+                        onModerationClick = onModerationClick,
+                    )
                 }
                 uiState.isTokenSet && uiState.isLoading -> {
                     V2Card {
@@ -135,7 +149,7 @@ fun ProfileScreen(
                 }
             }
 
-            // iOS 分组列表（设计稿 08 第二张卡）
+            // iOS 分组列表（设计稿 08 第二张卡 + iOS collectionsGrid 的全部入口）
             V2Card {
                 SettingsListRow(
                     iconColor = Color(0xFF1C7C6B),
@@ -150,7 +164,35 @@ fun ProfileScreen(
                     icon = Icons.Filled.Star,
                     title = "我的收藏",
                     detail = "${uiState.favoriteCount}",
-                    showChevron = false,
+                    onClick = onFavoritesClick,
+                    showChevron = true,
+                )
+                RowDivider()
+                SettingsListRow(
+                    iconColor = Color(0xFF5A7A9E),
+                    icon = Icons.Filled.History,
+                    title = "浏览历史",
+                    detail = "${uiState.historyCount}",
+                    onClick = onHistoryClick,
+                    showChevron = true,
+                )
+                RowDivider()
+                SettingsListRow(
+                    iconColor = Color(0xFFC77700),
+                    icon = Icons.Filled.Download,
+                    title = "稍后读 / 离线",
+                    detail = "${uiState.offlineCount}",
+                    onClick = onOfflineClick,
+                    showChevron = true,
+                )
+                RowDivider()
+                SettingsListRow(
+                    iconColor = Color(0xFF3A8E5A),
+                    icon = Icons.AutoMirrored.Filled.Article,
+                    title = "我的话题",
+                    detail = "${uiState.recentTopics.size}",
+                    onClick = onMyPostsClick,
+                    showChevron = true,
                 )
                 RowDivider()
                 SettingsListRow(
@@ -168,7 +210,7 @@ fun ProfileScreen(
             Spacer(modifier = Modifier.height(21.dp))
             SectionHeader("最近发布")
             V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
-                uiState.recentTopics.forEachIndexed { index, topic ->
+                uiState.recentTopics.take(5).forEachIndexed { index, topic ->
                     if (index > 0) {
                         HorizontalDivider(
                             modifier = Modifier.padding(start = 16.dp),
@@ -176,7 +218,7 @@ fun ProfileScreen(
                             color = MaterialTheme.colorScheme.outlineVariant,
                         )
                     }
-                    RecentTopicRow(topic)
+                    RecentTopicRow(topic, onClick = { onTopicClick(topic.id) })
                 }
             }
         }
@@ -185,9 +227,15 @@ fun ProfileScreen(
     }
 }
 
-/** 会员头卡（设计稿 08）：60dp 渐变身份方块 + 名字 + 简介 + 三块统计瓦片。 */
+/** 会员头卡（设计稿 08）：60dp 渐变身份方块 + 名字 + 简介 + 三块统计瓦片（可点进对应页）。 */
 @Composable
-private fun MemberHeaderCard(member: Member, uiState: ProfileUiState) {
+private fun MemberHeaderCard(
+    member: Member,
+    uiState: ProfileUiState,
+    onFavoritesClick: () -> Unit = {},
+    onHistoryClick: () -> Unit = {},
+    onModerationClick: () -> Unit = {},
+) {
     val dark = LocalV2Dark.current
     V2Card {
         Column(
@@ -248,13 +296,24 @@ private fun MemberHeaderCard(member: Member, uiState: ProfileUiState) {
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatTile(number = "${uiState.favoriteCount}", label = "收藏", modifier = Modifier.weight(1f))
-                StatTile(number = "${uiState.historyCount}", label = "历史", modifier = Modifier.weight(1f))
+                StatTile(
+                    number = "${uiState.favoriteCount}",
+                    label = "收藏",
+                    modifier = Modifier.weight(1f),
+                    onClick = onFavoritesClick,
+                )
+                StatTile(
+                    number = "${uiState.historyCount}",
+                    label = "历史",
+                    modifier = Modifier.weight(1f),
+                    onClick = onHistoryClick,
+                )
                 StatTile(
                     number = "${uiState.moderationCount}",
                     label = "屏蔽",
                     numberColor = V2Colors.Amber,
                     modifier = Modifier.weight(1f),
+                    onClick = onModerationClick,
                 )
             }
         }
@@ -268,12 +327,14 @@ private fun StatTile(
     label: String,
     modifier: Modifier = Modifier,
     numberColor: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: (() -> Unit)? = null,
 ) {
     val dark = LocalV2Dark.current
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .background(if (dark) Color(0xFF2C2C2E) else V2Colors.CanvasLight)
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
             .padding(10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -390,8 +451,13 @@ private fun RowDivider() {
 }
 
 @Composable
-private fun RecentTopicRow(topic: Topic) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp)) {
+private fun RecentTopicRow(topic: Topic, onClick: () -> Unit = {}) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+    ) {
         Text(
             text = topic.title,
             style = MaterialTheme.typography.topicRowTitle,

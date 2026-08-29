@@ -202,7 +202,11 @@ fun NodeTopicsScreen(
                         val topics = uiState.topics
                         itemsIndexed(topics, key = { _, topic -> topic.id }) { index, topic ->
                             CardGroupItem(position = cardGroupPosition(index, topics.lastIndex)) {
-                                NodeTopicRow(topic = topic, onClick = { onTopicClick(topic.id) })
+                                NodeTopicRow(
+                                    topic = topic,
+                                    dimmed = uiState.dimReadTopics && topic.id in uiState.readIds,
+                                    onClick = { onTopicClick(topic.id) },
+                                )
                             }
                         }
                         if (!uiState.reachedEnd) {
@@ -367,7 +371,7 @@ private fun SortChipsRow(
 
 /** 节点内话题行：34dp 头像、16/500 标题、`作者 · 时间` meta（不再重复节点名）、右侧回复数。 */
 @Composable
-private fun NodeTopicRow(topic: Topic, onClick: () -> Unit) {
+private fun NodeTopicRow(topic: Topic, onClick: () -> Unit, dimmed: Boolean = false) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -384,7 +388,7 @@ private fun NodeTopicRow(topic: Topic, onClick: () -> Unit) {
             Text(
                 text = topic.title,
                 style = MaterialTheme.typography.topicRowTitle,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = MaterialTheme.colorScheme.onSurface.let { if (dimmed) it.copy(alpha = 0.4f) else it },
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )

@@ -1,5 +1,6 @@
 package com.vibe.v2ex.feature.settings
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,22 +32,28 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.vibe.v2ex.data.datastore.AppTheme
 import com.vibe.v2ex.data.datastore.DarkModePreference
 import com.vibe.v2ex.data.datastore.LineSpacingPreference
 import com.vibe.v2ex.data.datastore.MonoFontPreference
 import com.vibe.v2ex.designsystem.SectionHeader
 import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.V2Colors
+import com.vibe.v2ex.designsystem.paletteFor
 
 private val LINE_SPACING_LABELS = mapOf(
     LineSpacingPreference.TIGHT to "紧凑",
@@ -59,8 +67,17 @@ private val MONO_FONT_LABELS = mapOf(
 )
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onAccountClick: () -> Unit = {},
+    onModerationClick: () -> Unit = {},
+    viewModel: SettingsViewModel = hiltViewModel(),
+) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+
+    // 从「账号」页返回后刷新登录状态展示。
+    LaunchedEffect(Unit) { viewModel.refreshSessionState() }
 
     Column(
         modifier = Modifier
@@ -92,14 +109,46 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
             )
         }
         Text(
-            text = "外观",
+            text = "设置",
             style = MaterialTheme.typography.headlineLarge,
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 14.dp),
         )
 
+        // 账号排最前：它是这页唯一有「状态」的东西，也是出问题时用户来找的答案。
+        SectionHeader("账号")
+        V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+            ValueRow(
+                label = "账号与登录",
+                value = when {
+                    uiState.isWebSessionActive ->
+                        uiState.sessionUsername?.takeIf(String::isNotBlank)?.let { "$it · 已登录" } ?: "已登录"
+                    uiState.isTokenSet -> "仅 Token"
+                    else -> "未登录"
+                },
+                onClick = onAccountClick,
+            )
+            InsetDivider()
+            SwitchRow(
+                label = "自动同步关注节点",
+                subtitle = if (uiState.isWebSessionActive) {
+                    "登录后自动同步网页收藏的节点"
+                } else {
+                    "登录 V2EX 后自动同步网页收藏的节点"
+                },
+                checked = uiState.autoSyncFollowedNodes,
+                enabled = uiState.isWebSessionActive,
+                onCheckedChange = viewModel::setAutoSyncFollowedNodes,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
         SectionHeader("主题")
         ThemeTiles(selected = uiState.darkMode, onSelect = viewModel::setDarkMode)
+
+        Spacer(modifier = Modifier.height(16.dp))
+        SectionHeader("主题色")
+        PaletteRow(selected = uiState.theme, onSelect = viewModel::setTheme)
 
         Spacer(modifier = Modifier.height(16.dp))
         SectionHeader("正文")
@@ -160,7 +209,118 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
             )
         }
 
+        Spacer(modifier = Modifier.height(16.dp))
+        SectionHeader("离线与缓存")
+        V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+            SwitchRow(
+                label = "自动离线关注节点",
+                subtitle = if (uiState.offlineOnWifiOnly) "仅 Wi-Fi 下载" else "使用任意网络下载",
+                checked = uiState.autoOfflineFollowedNodes,
+                onCheckedChange = viewModel::setAutoOfflineFollowedNodes,
+            )
+            InsetDivider()
+            SwitchRow(
+                label = "仅在 Wi-Fi 下载",
+                checked = uiState.offlineOnWifiOnly,
+                onCheckedChange = viewModel::setOfflineOnWifiOnly,
+            )
+            InsetDivider()
+            ValueRow(
+                label = "清空缓存",
+                value = formatCacheSize(uiState.cacheByteSize),
+                showChevron = false,
+                onClick = viewModel::clearCache,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        SectionHeader("关于")
+        V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+            ValueRow(label = "隐私政策", value = "", onClick = {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, "https://xinghelee.github.io/v2ex/privacy.html".toUri()),
+                )
+            })
+            InsetDivider()
+            ValueRow(label = "内容与屏蔽", value = "", onClick = onModerationClick)
+            InsetDivider()
+            ValueRow(label = "联系开发者", value = "hi@xinghelee.com", onClick = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, "mailto:hi@xinghelee.com".toUri()))
+            })
+            InsetDivider()
+            ValueRow(label = "V2EX API 文档", value = "", onClick = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.v2ex.com/help/api".toUri()))
+            })
+            InsetDivider()
+            ValueRow(label = "版本", value = appVersionName(context), showChevron = false, onClick = null)
+        }
+
+        Text(
+            text = "数据来自 V2EX 开放 API（api/v1 公开，api/v2 需要 Token）。全文搜索由社区项目 sov2ex 提供。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 14.dp),
+        )
+
         Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+private fun appVersionName(context: android.content.Context): String = runCatching {
+    context.packageManager.getPackageInfo(context.packageName, 0).versionName
+}.getOrNull() ?: ""
+
+private fun formatCacheSize(bytes: Int): String = when {
+    bytes >= 1 shl 20 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1048576.0)
+    bytes >= 1 shl 10 -> String.format(java.util.Locale.US, "%.0f KB", bytes / 1024.0)
+    else -> "$bytes B"
+}
+
+/** 主题色圆点行（mirrors iOS paletteSection）：46dp 渐变圆 + 选中外扩描边。 */
+@Composable
+private fun PaletteRow(selected: AppTheme, onSelect: (AppTheme) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        AppTheme.entries.forEach { theme ->
+            val palette = paletteFor(theme)
+            val isSelected = theme == selected
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(listOf(palette.accentLight, palette.accentDeep)),
+                        )
+                        .border(
+                            width = if (isSelected) 2.dp else 0.dp,
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                Color.Transparent
+                            },
+                            shape = CircleShape,
+                        )
+                        .clickable { onSelect(theme) },
+                )
+                Text(
+                    text = palette.title,
+                    fontSize = 12.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -301,13 +461,18 @@ private fun SplitPreview() {
     }
 }
 
-/** 值行：17sp 标题 + 右侧值 + chevron，点按轮换。 */
+/** 值行：17sp 标题 + 右侧值（+ 可选 chevron），点按触发动作。 */
 @Composable
-private fun ValueRow(label: String, value: String, onClick: () -> Unit) {
+private fun ValueRow(
+    label: String,
+    value: String,
+    onClick: (() -> Unit)?,
+    showChevron: Boolean = true,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
             .heightIn(min = 52.dp)
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -322,18 +487,26 @@ private fun ValueRow(label: String, value: String, onClick: () -> Unit) {
             fontSize = 15.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(modifier = Modifier.width(6.dp))
-        Icon(
-            Icons.Filled.ChevronRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.size(20.dp),
-        )
+        if (showChevron) {
+            Spacer(modifier = Modifier.width(6.dp))
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 
 @Composable
-private fun SwitchRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun SwitchRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    subtitle: String? = null,
+    enabled: Boolean = true,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -341,12 +514,22 @@ private fun SwitchRow(label: String, checked: Boolean, onCheckedChange: (Boolean
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.weight(1f),
-        )
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall,
+            )
+            subtitle?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 1.dp),
+                )
+            }
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

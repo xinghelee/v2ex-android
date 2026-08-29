@@ -10,6 +10,8 @@ import com.vibe.v2ex.data.model.Topic
 import com.vibe.v2ex.data.moderation.ModerationStore
 import com.vibe.v2ex.data.remote.V2exApiV1
 import com.vibe.v2ex.data.remote.V2exApiV2
+import com.vibe.v2ex.data.repository.FavoritesRepository
+import com.vibe.v2ex.data.repository.OfflineRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,10 +22,11 @@ import kotlinx.coroutines.launch
 data class ProfileUiState(
     val isTokenSet: Boolean = false,
     val member: Member? = null,
-    /** 最近发布 preview — first 5 topics by the current member, plain rows. */
+    /** 我发布的话题（完整列表；「最近发布」只展示前 5 条，计数用全量）。 */
     val recentTopics: List<Topic> = emptyList(),
     val favoriteCount: Int = 0,
     val historyCount: Int = 0,
+    val offlineCount: Int = 0,
     val moderationCount: Int = 0,
     val isLoading: Boolean = false,
     val error: String? = null,
@@ -34,8 +37,10 @@ class ProfileViewModel @Inject constructor(
     private val apiV2: V2exApiV2,
     private val apiV1: V2exApiV1,
     private val secureStore: SecureStore,
+    private val favoritesRepository: FavoritesRepository,
     favoriteTopicDao: FavoriteTopicDao,
     historyDao: HistoryDao,
+    offlineRepository: OfflineRepository,
     moderationStore: ModerationStore,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ProfileUiState(isTokenSet = secureStore.isTokenSet))
@@ -53,14 +58,22 @@ class ProfileViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            offlineRepository.observeAll().collect { bundles ->
+                _uiState.value = _uiState.value.copy(offlineCount = bundles.size)
+            }
+        }
+        viewModelScope.launch {
             moderationStore.moderationCount.collect { count ->
                 _uiState.value = _uiState.value.copy(moderationCount = count)
             }
         }
+        // 登录态下把网页收藏同步进本地 —— 「我的」页的收藏数因此是账号的真实数据。
+        viewModelScope.launch { favoritesRepository.syncFromRemote() }
     }
 
     fun refresh() {
         viewModelScope.launch {
+            if (secureStore.isWebSessionActive) favoritesRepository.syncFromRemote(maxPages = 1)
             if (!secureStore.isTokenSet) {
                 _uiState.value = _uiState.value.copy(
                     isTokenSet = false,
@@ -91,7 +104,7 @@ class ProfileViewModel @Inject constructor(
     private fun loadRecentTopics(username: String) {
         if (username.isBlank()) return
         viewModelScope.launch {
-            runCatching { apiV1.topicsByMember(username).take(5) }
+            runCatching { apiV1.topicsByMember(username) }
                 .onSuccess { topics -> _uiState.value = _uiState.value.copy(recentTopics = topics) }
         }
     }

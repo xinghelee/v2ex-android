@@ -17,6 +17,8 @@ import javax.inject.Inject
 data class NodesUiState(
     val allNodes: List<Node> = emptyList(),
     val titlesByName: Map<String, String> = emptyMap(),
+    /** 节点头像（all.json 的 avatar 字段），关注 chip 和搜索行展示真实图标用。 */
+    val avatarsByName: Map<String, String> = emptyMap(),
     val query: String = "",
     val followedNames: List<String> = emptyList(),
     val isLoading: Boolean = false,
@@ -39,6 +41,8 @@ data class NodesUiState(
 
     fun displayTitle(name: String): String =
         titlesByName[name]?.takeIf(String::isNotBlank) ?: NodeCatalog.displayName(name)
+
+    fun avatarUrl(name: String): String? = avatarsByName[name]
 }
 
 @HiltViewModel
@@ -67,6 +71,9 @@ class NodesViewModel @Inject constructor(
                         it.copy(
                             allNodes = nodes,
                             titlesByName = nodes.associate { node -> node.name to node.title },
+                            avatarsByName = nodes.mapNotNull { node ->
+                                node.avatarUrl?.let { url -> node.name to url }
+                            }.toMap(),
                             isLoading = false,
                         )
                     }

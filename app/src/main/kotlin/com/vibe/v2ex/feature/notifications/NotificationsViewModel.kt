@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibe.v2ex.data.datastore.SecureStore
 import com.vibe.v2ex.data.datastore.SeenNotificationsStore
+import com.vibe.v2ex.data.datastore.UnreadNotificationsStore
 import com.vibe.v2ex.data.model.Notification
 import com.vibe.v2ex.data.model.NotificationKind
 import com.vibe.v2ex.data.remote.V2exApiV1
@@ -64,6 +65,7 @@ class NotificationsViewModel @Inject constructor(
     private val apiV1: V2exApiV1,
     private val secureStore: SecureStore,
     private val seenStore: SeenNotificationsStore,
+    private val unreadNotificationsStore: UnreadNotificationsStore,
 ) : ViewModel() {
     private val topicLinkRegex = Regex("""/t/(\d+)""")
 
@@ -98,6 +100,7 @@ class NotificationsViewModel @Inject constructor(
                 envelope.result ?: error(envelope.message ?: "接口没有返回内容")
             }.onSuccess { fetched ->
                 items = fetched
+                unreadNotificationsStore.publish(fetched.map { it.id })
                 _uiState.value = _uiState.value.copy(isRefreshing = false)
                 rebuildRows()
                 backfillAvatars()
@@ -124,6 +127,7 @@ class NotificationsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { apiV2.deleteNotification(id) }
             items = items.filterNot { it.id == id }
+            unreadNotificationsStore.publish(items.map { it.id })
             rebuildRows()
         }
     }

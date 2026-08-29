@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vibe.v2ex.data.nodes.NodeCatalog
 import com.vibe.v2ex.data.remote.SoV2exHit
+import com.vibe.v2ex.designsystem.Avatar
 import com.vibe.v2ex.designsystem.CardGroupItem
 import com.vibe.v2ex.designsystem.LocalV2Dark
 import com.vibe.v2ex.designsystem.SectionHeader
@@ -67,7 +68,13 @@ import com.vibe.v2ex.designsystem.htmlToPlainText
 import com.vibe.v2ex.designsystem.topicRowTitle
 
 @Composable
-fun SearchScreen(onBack: () -> Unit, onTopicClick: (Long) -> Unit, viewModel: SearchViewModel = hiltViewModel()) {
+fun SearchScreen(
+    onBack: () -> Unit,
+    onTopicClick: (Long) -> Unit,
+    onNodeClick: (String) -> Unit = {},
+    onMemberClick: (String) -> Unit = {},
+    viewModel: SearchViewModel = hiltViewModel(),
+) {
     val uiState by viewModel.uiState.collectAsState()
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -139,7 +146,84 @@ fun SearchScreen(onBack: () -> Unit, onTopicClick: (Long) -> Unit, viewModel: Se
                         }
                     }
                 }
-                uiState.results.isNotEmpty() -> {
+                uiState.scope == SearchScope.MEMBERS && uiState.memberResult != null -> {
+                    item(key = "member") {
+                        val member = uiState.memberResult!!
+                        V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onMemberClick(member.username) }
+                                    .padding(16.dp),
+                            ) {
+                                Avatar(username = member.username, url = member.avatarUrl, size = 48.dp)
+                                Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+                                    Text(
+                                        text = member.username,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    member.tagline?.takeIf(String::isNotBlank)?.let { tagline ->
+                                        Text(
+                                            text = tagline,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.padding(top = 2.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                uiState.scope == SearchScope.NODES && uiState.nodeResults.isNotEmpty() -> {
+                    val nodes = uiState.nodeResults.take(40)
+                    itemsIndexed(nodes, key = { _, node -> node.id.takeIf { it != 0L } ?: node.name }) { index, node ->
+                        CardGroupItem(
+                            position = cardGroupPosition(index, nodes.lastIndex),
+                            dividerInset = 16.dp,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNodeClick(node.name) }
+                                    .heightIn(min = 54.dp)
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = node.title.ifBlank { node.name },
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = node.path,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Normal,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                    )
+                                }
+                                node.topics?.takeIf { it > 0 }?.let { topics ->
+                                    Text(
+                                        text = "$topics",
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                uiState.results.isNotEmpty() &&
+                    (uiState.scope == SearchScope.TOPICS || uiState.scope == SearchScope.REPLIES) -> {
                     itemsIndexed(uiState.results, key = { _, hit -> hit.source.id }) { index, hit ->
                         CardGroupItem(
                             position = cardGroupPosition(index, uiState.results.lastIndex),
@@ -163,10 +247,20 @@ fun SearchScreen(onBack: () -> Unit, onTopicClick: (Long) -> Unit, viewModel: Se
                     }
                 }
             }
-            if (uiState.recents.isNotEmpty()) {
+            if (uiState.recents.isNotEmpty() && !uiState.hasSearched) {
                 item(key = "recents") {
                     Column(modifier = Modifier.padding(top = 14.dp)) {
-                        SectionHeader(title = "最近搜索")
+                        SectionHeader(
+                            title = "最近搜索",
+                            trailing = {
+                                Text(
+                                    text = "清空",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.clickable(onClick = viewModel::clearRecents),
+                                )
+                            },
+                        )
                         RecentSearchesCard(
                             recents = uiState.recents,
                             onSearch = { query ->
@@ -224,7 +318,7 @@ private fun SearchField(
                 Box(modifier = Modifier.weight(1f)) {
                     if (value.isEmpty()) {
                         Text(
-                            text = "搜索话题 / 回复",
+                            text = "话题、回复、用户或节点",
                             fontSize = 16.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -256,7 +350,7 @@ private fun SearchField(
     )
 }
 
-/** 范围 chip 行：话题/回复 可切换；用户/节点 sov2ex 不支持，置灰展示。 */
+/** 范围 chip 行：话题/回复（sov2ex）、用户（v1 精确查询）、节点（本地过滤）。 */
 @Composable
 private fun ScopeChipsRow(
     selected: SearchScope,
@@ -286,22 +380,6 @@ private fun ScopeChipsRow(
                         },
                     )
                     .clickable { onSelect(scope) }
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
-            )
-        }
-        listOf("用户", "节点").forEach { label ->
-            Text(
-                text = label,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = (if (dark) MaterialTheme.colorScheme.onSurfaceVariant else V2Colors.SecondaryLabelLight)
-                    .copy(alpha = 0.35f),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(
-                        if (dark) Color(0xFF1C1C1E).copy(alpha = 0.5f)
-                        else Color.White.copy(alpha = 0.5f),
-                    )
                     .padding(horizontal = 14.dp, vertical = 6.dp),
             )
         }

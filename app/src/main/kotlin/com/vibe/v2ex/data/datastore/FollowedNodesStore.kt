@@ -23,6 +23,12 @@ class FollowedNodesStore @Inject constructor(
 ) {
     private object Keys {
         val NAMES = stringPreferencesKey("followed_node_names")
+
+        /**
+         * 本地取消关注过的节点（含删掉的默认种子）。远端同步时排除这些，
+         * 否则 app 里删掉的下一次自动同步又会被拉回来（mirrors iOS removedFromSync）。
+         */
+        val REMOVED_FROM_SYNC = stringPreferencesKey("followed_nodes_removed_from_sync")
     }
 
     val names: Flow<List<String>> = context.followedNodesDataStore.data.map { prefs ->
@@ -41,6 +47,7 @@ class FollowedNodesStore @Inject constructor(
     suspend fun remove(name: String) {
         context.followedNodesDataStore.edit { prefs ->
             prefs[Keys.NAMES] = encode(decode(prefs[Keys.NAMES]) - name)
+            prefs[Keys.REMOVED_FROM_SYNC] = encode((decode(prefs[Keys.REMOVED_FROM_SYNC]) + name).distinct())
         }
     }
 
@@ -49,8 +56,27 @@ class FollowedNodesStore @Inject constructor(
         if (trimmed.isEmpty()) return
         context.followedNodesDataStore.edit { prefs ->
             val current = decode(prefs[Keys.NAMES])
-            val next = if (trimmed in current) current - trimmed else current + trimmed
-            prefs[Keys.NAMES] = encode(next)
+            if (trimmed in current) {
+                prefs[Keys.NAMES] = encode(current - trimmed)
+                prefs[Keys.REMOVED_FROM_SYNC] = encode((decode(prefs[Keys.REMOVED_FROM_SYNC]) + trimmed).distinct())
+            } else {
+                prefs[Keys.NAMES] = encode(current + trimmed)
+                prefs[Keys.REMOVED_FROM_SYNC] = encode(decode(prefs[Keys.REMOVED_FROM_SYNC]) - trimmed)
+            }
+        }
+    }
+
+    /**
+     * 合并网页「我收藏的节点」：远程（按网页顺序）在前，本地独有的保留在末尾；
+     * 本地明确删除过的不再拉回。空远程列表直接跳过（抓取失败或未登录）。
+     */
+    suspend fun mergeFromRemote(remote: List<String>) {
+        if (remote.isEmpty()) return
+        context.followedNodesDataStore.edit { prefs ->
+            val removed = decode(prefs[Keys.REMOVED_FROM_SYNC]).toSet()
+            val incoming = remote.filterNot { it in removed }
+            val local = decode(prefs[Keys.NAMES])
+            prefs[Keys.NAMES] = encode((incoming + local.filterNot { it in incoming }).distinct())
         }
     }
 

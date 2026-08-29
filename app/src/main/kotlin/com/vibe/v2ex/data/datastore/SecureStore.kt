@@ -48,12 +48,24 @@ class SecureStore @Inject constructor(
         get() = prefs.getString(KEY_SESSION_USERNAME, null)
         set(value) = prefs.edit().putString(KEY_SESSION_USERNAME, value).apply()
 
+    /**
+     * 显式登录标记，只在 WebView 登录确认成功时置位。V2EX 对匿名访客也下发
+     * cookie（cookie jar 会原样持久化），所以「有 cookie」不能当成「已登录」。
+     */
+    var webLoggedIn: Boolean
+        get() = prefs.getBoolean(KEY_WEB_LOGGED_IN, false)
+        set(value) = prefs.edit().putBoolean(KEY_WEB_LOGGED_IN, value).apply()
+
     val isTokenSet: Boolean get() = !personalAccessToken.isNullOrBlank()
-    val isWebSessionActive: Boolean get() = !sessionCookieHeader.isNullOrBlank()
+    val isWebSessionActive: Boolean get() = webLoggedIn && !sessionCookieHeader.isNullOrBlank()
     val isSignedIn: Boolean get() = isTokenSet || isWebSessionActive
 
     fun clearWebSession() {
-        prefs.edit().remove(KEY_COOKIES).remove(KEY_SESSION_USERNAME).apply()
+        prefs.edit()
+            .remove(KEY_COOKIES)
+            .remove(KEY_SESSION_USERNAME)
+            .remove(KEY_WEB_LOGGED_IN)
+            .apply()
     }
 
     fun clearToken() {
@@ -64,5 +76,6 @@ class SecureStore @Inject constructor(
         const val KEY_PAT = "personal_access_token"
         const val KEY_COOKIES = "session_cookie_header"
         const val KEY_SESSION_USERNAME = "session_username"
+        const val KEY_WEB_LOGGED_IN = "web_logged_in"
     }
 }

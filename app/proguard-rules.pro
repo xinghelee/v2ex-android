@@ -14,3 +14,6 @@
 -keepclassmembers class com.vibe.v2ex.** implements kotlinx.serialization.internal.GeneratedSerializer {
     <fields>;
 }
+
+# Tink (EncryptedSharedPreferences) 引用的编译期注解，运行时不存在 — 安全忽略。
+-dontwarn com.google.errorprone.annotations.**

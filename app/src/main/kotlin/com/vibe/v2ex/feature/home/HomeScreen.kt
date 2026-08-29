@@ -49,6 +49,8 @@ import com.vibe.v2ex.designsystem.CardTopicRow
 import com.vibe.v2ex.designsystem.FeaturedTopicCard
 import com.vibe.v2ex.designsystem.GlassCircleButton
 import com.vibe.v2ex.designsystem.LocalV2Dark
+import com.vibe.v2ex.designsystem.OfflineBadge
+import com.vibe.v2ex.designsystem.PromotionBadge
 import com.vibe.v2ex.designsystem.cardGroupPosition
 import kotlinx.coroutines.launch
 
@@ -133,6 +135,8 @@ fun HomeScreen(
                 isLoading = feed.key in uiState.loadingFeeds,
                 error = uiState.errorsByFeed[feed.key],
                 featuredBadge = if (feed == HomeFeed.Hot) "今日最热" else "最新活跃",
+                readIds = if (uiState.dimReadTopics) uiState.readIds else emptySet(),
+                offlineIds = uiState.offlineIds,
                 onRefresh = {
                     if (pagerState.currentPage == page) viewModel.refresh(feed)
                 },
@@ -190,6 +194,8 @@ private fun FeedPage(
     isLoading: Boolean,
     error: String?,
     featuredBadge: String,
+    readIds: Set<Long> = emptySet(),
+    offlineIds: Set<Long> = emptySet(),
     onRefresh: () -> Unit,
     onTopicClick: (Long) -> Unit,
 ) {
@@ -255,7 +261,16 @@ private fun FeedPage(
                     }
                     itemsIndexed(rest, key = { _, topic -> topic.id }) { index, topic ->
                         CardGroupItem(position = cardGroupPosition(index, rest.lastIndex)) {
-                            CardTopicRow(topic = topic, onClick = { onTopicClick(topic.id) })
+                            CardTopicRow(
+                                topic = topic,
+                                onClick = { onTopicClick(topic.id) },
+                                dimmed = topic.id in readIds,
+                                trailingBadge = when {
+                                    topic.id in offlineIds -> ({ OfflineBadge() })
+                                    topic.isPromotionNode -> ({ PromotionBadge() })
+                                    else -> null
+                                },
+                            )
                         }
                     }
                 }

@@ -22,6 +22,13 @@ interface OfflineTopicDao {
     @Query("UPDATE offline_topics SET readingProgress = :progress WHERE topicId = :topicId")
     suspend fun updateProgress(topicId: Long, progress: Int)
 
+    /** 自动缓存（automatic=1）超额清理，保留最近 [limit] 条；用户手动保存的永不清。 */
+    @Query(
+        "DELETE FROM offline_topics WHERE automatic = 1 AND topicId NOT IN " +
+            "(SELECT topicId FROM offline_topics WHERE automatic = 1 ORDER BY cachedAt DESC LIMIT :limit)",
+    )
+    suspend fun pruneAutomatic(limit: Int)
+
     @Query("DELETE FROM offline_topics WHERE topicId = :topicId")
     suspend fun delete(topicId: Long)
 
@@ -34,7 +41,11 @@ interface DraftDao {
     @Query("SELECT * FROM drafts ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<DraftEntity>>
 
-    @Query("SELECT * FROM drafts WHERE topicId = :topicId LIMIT 1")
+    /** `topicId = NULL` 在 SQL 里永远不匹配 — 新帖草稿（topicId 为空）必须用 IS NULL 分支。 */
+    @Query(
+        "SELECT * FROM drafts WHERE (:topicId IS NULL AND topicId IS NULL) OR topicId = :topicId " +
+            "ORDER BY updatedAt DESC LIMIT 1",
+    )
     suspend fun forTopic(topicId: Long?): DraftEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -97,6 +108,10 @@ interface FavoriteTopicDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: FavoriteTopicEntity)
 
+    /** 远端合并用：本地已有的行保留原 savedAt/标题，不被爬到的旧数据覆盖。 */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfAbsent(entities: List<FavoriteTopicEntity>)
+
     @Query("DELETE FROM favorite_topics WHERE topicId = :topicId")
     suspend fun remove(topicId: Long)
 }
@@ -114,6 +129,13 @@ interface HistoryDao {
 
     @Query("DELETE FROM history WHERE viewedAt < :cutoffMillis")
     suspend fun pruneOlderThan(cutoffMillis: Long)
+
+    /** 每条都带完整话题信息，无限增长会拖慢启动 —— 与 iOS 同样 500 条封顶。 */
+    @Query(
+        "DELETE FROM history WHERE topicId NOT IN " +
+            "(SELECT topicId FROM history ORDER BY viewedAt DESC LIMIT :limit)",
+    )
+    suspend fun pruneToCount(limit: Int)
 
     @Query("DELETE FROM history")
     suspend fun clear()

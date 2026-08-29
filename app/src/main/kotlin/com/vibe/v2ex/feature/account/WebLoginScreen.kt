@@ -55,21 +55,39 @@ fun WebLoginScreen(onCancel: () -> Unit, onSuccess: (cookieHeader: String, usern
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { context ->
-                CookieManager.getInstance().setAcceptCookie(true)
+                CookieManager.getInstance().apply {
+                    setAcceptCookie(true)
+                    // 残留的旧会话 cookie 会让 V2EX 拒发验证码图（/_captcha 被重定向回首页），
+                    // 登录必然失败。开始登录 = 全新会话，先清干净。
+                    removeAllCookies(null)
+                    flush()
+                }
+                // debug 包开启 chrome://inspect 远程调试，方便排查登录页行为。
+                val debuggable = (context.applicationInfo.flags and
+                    android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                if (debuggable) WebView.setWebContentsDebuggingEnabled(true)
                 WebView(context).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     settings.userAgentString = MOBILE_UA
                     webViewClient = object : WebViewClient() {
+                        private var reported = false
+
                         @SuppressLint("SetJavaScriptEnabled")
                         override fun onPageFinished(view: WebView, url: String?) {
                             super.onPageFinished(view, url)
+                            if (reported) return
                             val path = url?.toUri()?.path.orEmpty()
                             if (path == "/signin" || path == "/2fa") return
                             val cookie = CookieManager.getInstance().getCookie(V2EX_BASE)
                             if (cookie.isNullOrBlank()) return
                             view.evaluateJavascript(SCRAPE_USERNAME_JS) { rawResult ->
                                 val username = rawResult?.trim('"').orEmpty()
+                                // V2EX 对匿名访客也下发 cookie；页面上出现自己的
+                                // /member/ 链接（能刮到用户名）才是真登录，否则
+                                // 只是没登录乱逛 —— 千万不能当成功。
+                                if (username.isBlank()) return@evaluateJavascript
+                                reported = true
                                 onSuccess(cookie, username)
                             }
                         }

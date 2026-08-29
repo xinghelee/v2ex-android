@@ -18,12 +18,16 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.stateIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.navigation.NavDestination
+import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -43,7 +48,12 @@ import androidx.navigation.toRoute
 import com.vibe.v2ex.designsystem.LocalV2Dark
 import com.vibe.v2ex.feature.account.AccountScreen
 import com.vibe.v2ex.feature.home.HomeScreen
+import com.vibe.v2ex.feature.member.MemberScreen
 import com.vibe.v2ex.feature.moderation.ModerationSettingsScreen
+import com.vibe.v2ex.feature.profile.FavoritesScreen
+import com.vibe.v2ex.feature.profile.HistoryScreen
+import com.vibe.v2ex.feature.profile.MyPostsScreen
+import com.vibe.v2ex.feature.profile.OfflineListScreen
 import com.vibe.v2ex.feature.nodes.NodeTopicsScreen
 import com.vibe.v2ex.feature.nodes.NodesScreen
 import com.vibe.v2ex.feature.notifications.NotificationsScreen
@@ -61,9 +71,11 @@ private data class TabSpec(
     val matches: (NavDestination) -> Boolean,
 )
 
+// hasRoute 走序列化器匹配 — 之前用 route::class.qualifiedName 和 destination.route
+// 比对字符串，R8 混淆后类名改了而路由串没改，release 包底栏因此消失。
 private fun routeMatcher(route: Route): (NavDestination) -> Boolean {
-    val qualifiedName = route::class.qualifiedName
-    return { destination -> destination.route == qualifiedName }
+    val routeClass = route::class
+    return { destination -> destination.hasRoute(routeClass) }
 }
 
 /** 设计稿的 4 Tab：首页 / 节点 / 通知 / 我的（搜索移到首页顶栏玻璃圆钮）。 */
@@ -74,19 +86,36 @@ private val TABS = listOf(
     TabSpec(Route.Profile, "我的", Icons.Outlined.Person, Icons.Filled.Person, routeMatcher(Route.Profile)),
 )
 
+/** 底部「通知」角标的数据桥 — UnreadNotificationsStore 的 StateFlow 化。 */
+@dagger.hilt.android.lifecycle.HiltViewModel
+class TabBadgeViewModel @javax.inject.Inject constructor(
+    unreadNotificationsStore: com.vibe.v2ex.data.datastore.UnreadNotificationsStore,
+) : androidx.lifecycle.ViewModel() {
+    val unreadCount: kotlinx.coroutines.flow.StateFlow<Int> = unreadNotificationsStore.unreadCount
+        .stateIn(
+            viewModelScope,
+            kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000),
+            0,
+        )
+}
+
 @Composable
-fun V2exApp() {
+fun V2exApp(badgeViewModel: TabBadgeViewModel = androidx.hilt.navigation.compose.hiltViewModel()) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val onTab = TABS.any { tab -> currentDestination?.hierarchy?.any(tab.matches) == true }
+    val unreadCount by badgeViewModel.unreadCount.collectAsState()
 
     androidx.compose.material3.Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        // 各屏幕自己做 statusBarsPadding；Scaffold 再注入系统栏 inset 会把顶部垫两次。
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (onTab) {
                 BottomTabBar(
                     currentDestination = currentDestination,
+                    notificationBadgeCount = unreadCount,
                     onTabClick = { tab ->
                         navController.navigate(tab.route) {
                             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -117,16 +146,25 @@ fun V2exApp() {
                 SearchScreen(
                     onBack = navController::popBackStack,
                     onTopicClick = { id -> navController.navigate(Route.Topic(id)) },
+                    onNodeClick = { name -> navController.navigate(Route.NodeTopics(name)) },
+                    onMemberClick = { username -> navController.navigate(Route.Member(username)) },
                 )
             }
             composable<Route.Notifications> {
-                NotificationsScreen()
+                NotificationsScreen(
+                    onTopicClick = { id -> navController.navigate(Route.Topic(id)) },
+                )
             }
             composable<Route.Profile> {
                 ProfileScreen(
                     onLoginClick = { navController.navigate(Route.Login) },
                     onSettingsClick = { navController.navigate(Route.Settings) },
                     onModerationClick = { navController.navigate(Route.Moderation) },
+                    onFavoritesClick = { navController.navigate(Route.Favorites) },
+                    onHistoryClick = { navController.navigate(Route.History) },
+                    onOfflineClick = { navController.navigate(Route.Offline) },
+                    onMyPostsClick = { navController.navigate(Route.MyPosts) },
+                    onTopicClick = { id -> navController.navigate(Route.Topic(id)) },
                 )
             }
             composable<Route.Topic> { entry ->
@@ -134,7 +172,38 @@ fun V2exApp() {
                 TopicScreen(
                     topicId = route.topicId,
                     onBack = navController::popBackStack,
-                    onReplyClick = { navController.navigate(Route.Write(route.topicId)) },
+                    onNodeClick = { name -> navController.navigate(Route.NodeTopics(name)) },
+                    onMemberClick = { username -> navController.navigate(Route.Member(username)) },
+                )
+            }
+            composable<Route.Member> {
+                MemberScreen(
+                    onBack = navController::popBackStack,
+                    onTopicClick = { id -> navController.navigate(Route.Topic(id)) },
+                )
+            }
+            composable<Route.Favorites> {
+                FavoritesScreen(
+                    onBack = navController::popBackStack,
+                    onTopicClick = { id -> navController.navigate(Route.Topic(id)) },
+                )
+            }
+            composable<Route.History> {
+                HistoryScreen(
+                    onBack = navController::popBackStack,
+                    onTopicClick = { id -> navController.navigate(Route.Topic(id)) },
+                )
+            }
+            composable<Route.Offline> {
+                OfflineListScreen(
+                    onBack = navController::popBackStack,
+                    onTopicClick = { id -> navController.navigate(Route.Topic(id)) },
+                )
+            }
+            composable<Route.MyPosts> {
+                MyPostsScreen(
+                    onBack = navController::popBackStack,
+                    onTopicClick = { id -> navController.navigate(Route.Topic(id)) },
                 )
             }
             composable<Route.NodeTopics> {
@@ -147,13 +216,24 @@ fun V2exApp() {
                 AccountScreen(onBack = navController::popBackStack)
             }
             composable<Route.Settings> {
-                SettingsScreen(onBack = navController::popBackStack)
+                SettingsScreen(
+                    onBack = navController::popBackStack,
+                    onAccountClick = { navController.navigate(Route.Login) },
+                    onModerationClick = { navController.navigate(Route.Moderation) },
+                )
             }
             composable<Route.Moderation> {
                 ModerationSettingsScreen(onBack = navController::popBackStack)
             }
             composable<Route.Write> {
-                WriteScreen(onBack = navController::popBackStack)
+                WriteScreen(
+                    onBack = navController::popBackStack,
+                    onPublished = { newTopicId ->
+                        // 发完直接落到自己的帖子上，省得再去首页找。
+                        navController.popBackStack()
+                        navController.navigate(Route.Topic(newTopicId))
+                    },
+                )
             }
         }
     }
@@ -165,6 +245,7 @@ private fun BottomTabBar(
     currentDestination: NavDestination?,
     onTabClick: (TabSpec) -> Unit,
     modifier: Modifier = Modifier,
+    notificationBadgeCount: Int = 0,
 ) {
     val dark = LocalV2Dark.current
     Surface(
@@ -197,12 +278,29 @@ private fun BottomTabBar(
                             .padding(vertical = 2.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Icon(
-                            imageVector = if (selected) tab.iconSelected else tab.icon,
-                            contentDescription = tab.label,
-                            tint = tint,
-                            modifier = Modifier.size(24.dp),
-                        )
+                        // 图标上方与右侧预留出徽章的位置，负偏移不越出列的 clip 区（否则被裁）。
+                        Box {
+                            Icon(
+                                imageVector = if (selected) tab.iconSelected else tab.icon,
+                                contentDescription = tab.label,
+                                tint = tint,
+                                modifier = Modifier
+                                    .padding(top = 5.dp, start = 12.dp, end = 12.dp)
+                                    .size(24.dp),
+                            )
+                            if (tab.route == Route.Notifications && notificationBadgeCount > 0) {
+                                Text(
+                                    text = if (notificationBadgeCount > 99) "99+" else "$notificationBadgeCount",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(MaterialTheme.colorScheme.error)
+                                        .padding(horizontal = 4.dp),
+                                )
+                            }
+                        }
                         Text(
                             text = tab.label,
                             style = MaterialTheme.typography.labelSmall,

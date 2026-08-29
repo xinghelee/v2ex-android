@@ -16,6 +16,10 @@ sealed interface Route {
     @Serializable data object Settings : Route
     @Serializable data object Moderation : Route
     @Serializable data class Member(val username: String) : Route
+    @Serializable data object Favorites : Route
+    @Serializable data object History : Route
+    @Serializable data object Offline : Route
+    @Serializable data object MyPosts : Route
 }
 
 val TAB_ROUTES: List<Route> = listOf(Route.Home, Route.Nodes, Route.Notifications, Route.Profile)

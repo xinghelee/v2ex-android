@@ -284,6 +284,20 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier, trailing: (@Comp
     }
 }
 
+/** 推广标记：发在 promotions 节点 = 站方已声明的商业内容，标记而不隐藏。 */
+@Composable
+fun PromotionBadge(modifier: Modifier = Modifier) {
+    Text(
+        text = "推广",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}
+
 /** 离线标记胶囊：`↓ 已离线`，橙字橙soft底。 */
 @Composable
 fun OfflineBadge(modifier: Modifier = Modifier) {

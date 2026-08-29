@@ -54,8 +54,10 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.ContentScale
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil3.compose.AsyncImage
 import com.vibe.v2ex.data.model.Node
 import com.vibe.v2ex.designsystem.LocalV2Dark
 import com.vibe.v2ex.designsystem.SectionHeader
@@ -68,7 +70,11 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WriteScreen(onBack: () -> Unit, viewModel: WriteViewModel = hiltViewModel()) {
+fun WriteScreen(
+    onBack: () -> Unit,
+    onPublished: (Long) -> Unit = {},
+    viewModel: WriteViewModel = hiltViewModel(),
+) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val isReply = uiState.topicId != null
@@ -76,6 +82,9 @@ fun WriteScreen(onBack: () -> Unit, viewModel: WriteViewModel = hiltViewModel())
 
     LaunchedEffect(uiState.submitted) {
         if (uiState.submitted) onBack()
+    }
+    LaunchedEffect(uiState.publishedTopicId) {
+        uiState.publishedTopicId?.let(onPublished)
     }
 
     // 草稿时间 — 首帧（回显已有草稿）不算，之后每次输入更新一次。
@@ -119,13 +128,18 @@ fun WriteScreen(onBack: () -> Unit, viewModel: WriteViewModel = hiltViewModel())
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.align(Alignment.Center),
             )
+            // mirrors iOS：标题或正文任一非空即可点发布，标题缺失由校验给出明确报错。
             val submitEnabled = if (isReply) {
                 !uiState.isSubmitting && uiState.content.isNotBlank()
             } else {
-                uiState.content.isNotBlank()
+                !uiState.isSubmitting && (uiState.content.isNotBlank() || uiState.title.isNotBlank())
             }
             Text(
-                text = if (isReply) "发送" else "发布",
+                text = when {
+                    uiState.isSubmitting -> "发布中…"
+                    isReply -> "发送"
+                    else -> "发布"
+                },
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White,
@@ -134,10 +148,11 @@ fun WriteScreen(onBack: () -> Unit, viewModel: WriteViewModel = hiltViewModel())
                     .clip(RoundedCornerShape(16.dp))
                     .background(MaterialTheme.colorScheme.primary.copy(alpha = if (submitEnabled) 1f else 0.4f))
                     .clickable(enabled = submitEnabled) {
-                        if (isReply) {
-                            viewModel.submitReply()
-                        } else {
-                            copyAndOpenWebWrite(context, uiState.content, uiState.selectedNode?.name)
+                        when {
+                            isReply -> viewModel.submitReply()
+                            // 未登录时没有会话 cookie，表单提交必然失败，直接走网页。
+                            uiState.isWebSessionActive -> viewModel.submitTopic()
+                            else -> copyAndOpenWebWrite(context, uiState.content, uiState.selectedNode?.name)
                         }
                     }
                     .padding(horizontal = 16.dp, vertical = 6.dp),
@@ -244,20 +259,41 @@ fun WriteScreen(onBack: () -> Unit, viewModel: WriteViewModel = hiltViewModel())
                 }
                 if (!isReply) {
                     Text(
-                        text = "V2EX 未开放发帖 API，「发布」会复制正文并打开网页完成",
+                        text = if (uiState.isWebSessionActive) {
+                            "将以你的网页会话直接发布，成功后自动打开新帖"
+                        } else {
+                            "未登录网页会话：「发布」会复制正文并打开网页完成"
+                        },
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Normal,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
-                uiState.error?.let {
+                uiState.error?.let { error ->
                     Text(
-                        text = it,
+                        text = error,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(top = 4.dp),
                     )
+                    // 发布被拒后的逃生口（mirrors iOS「改用网页发布」）：
+                    // 正文复制到剪贴板，网页里长按粘贴即可。
+                    if (!isReply) {
+                        Text(
+                            text = "改用网页发布（正文已复制）",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable {
+                                    copyAndOpenWebWrite(context, uiState.content, uiState.selectedNode?.name)
+                                }
+                                .padding(vertical = 2.dp),
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(2.dp))
@@ -267,6 +303,7 @@ fun WriteScreen(onBack: () -> Unit, viewModel: WriteViewModel = hiltViewModel())
     if (showNodePicker) {
         NodePickerSheet(
             nodes = uiState.nodes,
+            followedNames = uiState.followedNames,
             onSelect = { node ->
                 viewModel.onNodeSelected(node)
                 showNodePicker = false
@@ -316,6 +353,17 @@ private fun NodeSelectorCard(node: Node?, onClick: () -> Unit, modifier: Modifie
 
 @Composable
 private fun NodeSquare(node: Node?, size: androidx.compose.ui.unit.Dp = 30.dp) {
+    if (node?.avatarUrl != null) {
+        AsyncImage(
+            model = node.avatarUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(size)
+                .clip(RoundedCornerShape(8.dp)),
+        )
+        return
+    }
     Box(
         modifier = Modifier
             .size(size)
@@ -394,19 +442,21 @@ private fun FormatSquare(
     }
 }
 
-/** 节点选择弹层：搜索过滤 + 列表。 */
+/** 节点选择弹层：无搜索词时默认列关注的节点，搜索时过滤全量（mirrors iOS NodePicker）。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NodePickerSheet(
     nodes: List<Node>,
+    followedNames: List<String>,
     onSelect: (Node) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var query by remember { mutableStateOf("") }
-    val filtered = remember(nodes, query) {
+    val filtered = remember(nodes, followedNames, query) {
         if (query.isBlank()) {
-            nodes
+            val byName = nodes.associateBy { it.name }
+            followedNames.mapNotNull { byName[it] }.ifEmpty { nodes }
         } else {
             nodes.filter {
                 it.title.contains(query, ignoreCase = true) || it.name.contains(query, ignoreCase = true)

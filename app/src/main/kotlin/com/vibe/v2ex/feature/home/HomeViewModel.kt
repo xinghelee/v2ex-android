@@ -3,14 +3,18 @@ package com.vibe.v2ex.feature.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibe.v2ex.data.datastore.FollowedNodesStore
+import com.vibe.v2ex.data.datastore.ReadStateStore
+import com.vibe.v2ex.data.datastore.SettingsDataStore
 import com.vibe.v2ex.data.model.Topic
 import com.vibe.v2ex.data.nodes.NodeCatalog
 import com.vibe.v2ex.data.repository.HomeRepository
 import com.vibe.v2ex.data.repository.NodesRepository
+import com.vibe.v2ex.data.repository.OfflineRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -46,6 +50,10 @@ data class HomeUiState(
     val topicsByFeed: Map<String, List<Topic>> = emptyMap(),
     val loadingFeeds: Set<String> = emptySet(),
     val errorsByFeed: Map<String, String> = emptyMap(),
+    /** 已读话题（配合 dimReadTopics 置灰）+ 已离线话题（行尾徽章）。 */
+    val readIds: Set<Long> = emptySet(),
+    val dimReadTopics: Boolean = false,
+    val offlineIds: Set<Long> = emptySet(),
 ) {
     val currentFeed: HomeFeed get() = feeds.getOrElse(currentIndex) { HomeFeed.All }
 }
@@ -55,6 +63,9 @@ class HomeViewModel @Inject constructor(
     private val repository: HomeRepository,
     private val nodesRepository: NodesRepository,
     private val followedNodesStore: FollowedNodesStore,
+    readStateStore: ReadStateStore,
+    settingsDataStore: SettingsDataStore,
+    offlineRepository: OfflineRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -62,6 +73,17 @@ class HomeViewModel @Inject constructor(
     private var followedNames: List<String> = emptyList()
 
     init {
+        viewModelScope.launch {
+            readStateStore.readIds.collect { ids -> _uiState.update { it.copy(readIds = ids) } }
+        }
+        viewModelScope.launch {
+            settingsDataStore.dimReadTopics.collect { dim -> _uiState.update { it.copy(dimReadTopics = dim) } }
+        }
+        viewModelScope.launch {
+            offlineRepository.observeAll()
+                .map { bundles -> bundles.mapTo(mutableSetOf()) { it.topic.id } }
+                .collect { ids -> _uiState.update { it.copy(offlineIds = ids) } }
+        }
         viewModelScope.launch {
             followedNodesStore.names.collect { names ->
                 followedNames = names

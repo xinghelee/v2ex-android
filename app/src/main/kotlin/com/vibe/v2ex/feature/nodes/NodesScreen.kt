@@ -25,10 +25,20 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.PhoneIphone
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sell
+import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Tag
+import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -49,7 +59,9 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil3.compose.AsyncImage
 import com.vibe.v2ex.data.model.Node
 import com.vibe.v2ex.data.nodes.NodeCatalog
 import com.vibe.v2ex.data.nodes.NodeCategory
@@ -78,7 +91,6 @@ fun NodesScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var editMode by remember { mutableStateOf(false) }
-    var expandedCategories by remember { mutableStateOf(setOf<String>()) }
     val searchFocusRequester = remember { FocusRequester() }
 
     Column(
@@ -139,16 +151,7 @@ fun NodesScreen(
                     SectionHeader(title = "全部分类", modifier = Modifier.padding(top = 22.dp))
                 }
                 item(key = "categories-card") {
-                    CategoriesCard(
-                        uiState = uiState,
-                        expandedCategories = expandedCategories,
-                        onToggleCategory = { title ->
-                            expandedCategories =
-                                if (title in expandedCategories) expandedCategories - title
-                                else expandedCategories + title
-                        },
-                        onNodeClick = onNodeClick,
-                    )
+                    CategoriesCard(uiState = uiState, onNodeClick = onNodeClick)
                 }
             }
         }
@@ -240,6 +243,7 @@ private fun FollowedNodesCard(
                     FollowedNodeChip(
                         name = name,
                         title = uiState.displayTitle(name),
+                        avatarUrl = uiState.avatarUrl(name),
                         editMode = editMode,
                         onClick = {
                             if (editMode) onRemoveFollowed(name) else onNodeClick(name)
@@ -252,11 +256,12 @@ private fun FollowedNodesCard(
     }
 }
 
-/** 关注 chip：canvas 底圆角 13，20dp 身份方块 + 14sp 标题；编辑态尾随小 ✕。 */
+/** 关注 chip：canvas 底圆角 13，20dp 节点头像（无图退回字母方块）+ 14sp 标题；编辑态尾随小 ✕。 */
 @Composable
 private fun FollowedNodeChip(
     name: String,
     title: String,
+    avatarUrl: String?,
     editMode: Boolean,
     onClick: () -> Unit,
 ) {
@@ -268,26 +273,40 @@ private fun FollowedNodeChip(
             .clickable(onClick = onClick)
             .padding(start = 7.dp, end = 11.dp, top = 6.dp, bottom = 6.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(20.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(identityColor(name)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = title.take(1),
-                color = Color.White,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
+        if (avatarUrl != null) {
+            AsyncImage(
+                model = avatarUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(RoundedCornerShape(6.dp)),
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(identityColor(name)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = title.take(1),
+                    color = Color.White,
+                    style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                )
+            }
         }
         Spacer(Modifier.width(7.dp))
+        // 不继承默认 bodyLarge 的 24sp 行高 — 否则 14sp 的字在行框里下沉。
         Text(
             text = title,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
+            style = TextStyle(
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            ),
         )
         if (editMode) {
             Spacer(Modifier.width(5.dp))
@@ -324,8 +343,11 @@ private fun AddNodeChip(onClick: () -> Unit) {
     ) {
         Text(
             text = "+ 添加",
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = TextStyle(
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
         )
     }
 }
@@ -333,23 +355,17 @@ private fun AddNodeChip(onClick: () -> Unit) {
 @Composable
 private fun CategoriesCard(
     uiState: NodesUiState,
-    expandedCategories: Set<String>,
-    onToggleCategory: (String) -> Unit,
     onNodeClick: (String) -> Unit,
 ) {
     V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
         val categories = NodeCatalog.categories
         categories.forEachIndexed { index, category ->
-            val expanded = category.title in expandedCategories
             CategoryRow(
                 category = category,
                 uiState = uiState,
-                expanded = expanded,
-                onClick = { onToggleCategory(category.title) },
+                // mirrors iOS：分类行直接进该分类第一个节点的节点页。
+                onClick = { category.nodeNames.firstOrNull()?.let(onNodeClick) },
             )
-            if (expanded) {
-                CategoryNodesFlow(category = category, uiState = uiState, onNodeClick = onNodeClick)
-            }
             if (index != categories.lastIndex) {
                 HorizontalDivider(
                     modifier = Modifier.padding(start = 58.dp),
@@ -361,12 +377,25 @@ private fun CategoriesCard(
     }
 }
 
-/** iOS 列表行：30dp 彩色方块、17sp 标题、成员摘要、右侧节点数 + chevron。 */
+/** 分类图标映射（对应 iOS SF Symbols：code / lightbulb.max / cup.and.saucer / gamecontroller / apple.logo / externaldrive / briefcase / tag / questionmark.bubble）。 */
+private fun categoryIcon(id: String): ImageVector = when (id) {
+    "code" -> Icons.Filled.Code
+    "lightbulb" -> Icons.Filled.Lightbulb
+    "coffee" -> Icons.Filled.Coffee
+    "games" -> Icons.Filled.SportsEsports
+    "apple" -> Icons.Filled.PhoneIphone
+    "storage" -> Icons.Filled.Storage
+    "work" -> Icons.Filled.Work
+    "sell" -> Icons.Filled.Sell
+    "help" -> Icons.AutoMirrored.Filled.HelpOutline
+    else -> Icons.Filled.Tag
+}
+
+/** iOS 列表行：30dp accent 方块 + 白图标、17sp 标题、成员摘要（前 4 个）、右侧节点数 + chevron。 */
 @Composable
 private fun CategoryRow(
     category: NodeCategory,
     uiState: NodesUiState,
-    expanded: Boolean,
     onClick: () -> Unit,
 ) {
     val dark = LocalV2Dark.current
@@ -383,8 +412,16 @@ private fun CategoryRow(
             modifier = Modifier
                 .size(30.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(identityColor(category.title)),
-        )
+                .background(MaterialTheme.colorScheme.primary),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = categoryIcon(category.icon),
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(16.dp),
+            )
+        }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -393,7 +430,7 @@ private fun CategoryRow(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = memberNames.take(3).joinToString(" · ") { uiState.displayTitle(it) },
+                text = memberNames.take(4).joinToString(" · ") { uiState.displayTitle(it) },
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -409,42 +446,11 @@ private fun CategoryRow(
         )
         Spacer(Modifier.width(4.dp))
         Icon(
-            imageVector = if (expanded) Icons.Filled.ExpandMore else Icons.Filled.ChevronRight,
+            imageVector = Icons.Filled.ChevronRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.outline,
             modifier = Modifier.size(20.dp),
         )
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun CategoryNodesFlow(
-    category: NodeCategory,
-    uiState: NodesUiState,
-    onNodeClick: (String) -> Unit,
-) {
-    val dark = LocalV2Dark.current
-    FlowRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        category.nodeNames.distinct().forEach { name ->
-            Text(
-                text = uiState.displayTitle(name),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(V2Colors.accentSoft(dark))
-                    .clickable { onNodeClick(name) }
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-            )
-        }
     }
 }
 
@@ -491,19 +497,30 @@ private fun SearchResultNodeRow(node: Node, onClick: () -> Unit) {
             .heightIn(min = 54.dp)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(30.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(identityColor(node.name)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = title.take(1),
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
+        if (node.avatarUrl != null) {
+            AsyncImage(
+                model = node.avatarUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(8.dp)),
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(identityColor(node.name)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = title.take(1),
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {

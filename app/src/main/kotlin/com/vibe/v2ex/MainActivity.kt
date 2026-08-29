@@ -23,12 +23,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val uiState by appViewModel.uiState.collectAsState()
-            V2exTheme(darkModePreference = uiState.darkMode) {
-                if (uiState.agreementAccepted) {
-                    V2exApp()
-                } else {
-                    AgreementScreen()
-                }
+            V2exTheme(darkModePreference = uiState.darkMode, appTheme = uiState.theme) {
+                // 「使用须知」闸门是 App Store Guideline 1.2 的产物，Android 版隐藏不展示
+                // （AgreementScreen 代码保留，未接线）。
+                V2exApp()
             }
         }
     }

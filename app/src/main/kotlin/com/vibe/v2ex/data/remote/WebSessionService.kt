@@ -2,6 +2,7 @@ package com.vibe.v2ex.data.remote
 
 import com.vibe.v2ex.data.datastore.SecureStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
@@ -12,6 +13,26 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val BASE = "https://www.v2ex.com"
+
+/** 网页收藏列表里的一行（/my/topics）。API 拿不到收藏，只能靠登录态网页。 */
+data class ScrapedFavorite(
+    val topicId: Long,
+    val title: String,
+    val nodeName: String,
+    val nodeTitle: String,
+    val authorName: String,
+    val replies: Int,
+)
+
+/** 楼主附言（Supplement）。API 1.0/2.0 都不返回，只能从话题网页解析。 */
+data class TopicAppend(val index: Int, val timeLabel: String, val contentHtml: String)
+
+/** 话题页一次抓取能给出的所有额外信息：浏览数、附言、PRO 会员。 */
+data class TopicPageExtras(
+    val views: Int? = null,
+    val appends: List<TopicAppend> = emptyList(),
+    val proMembers: Set<String> = emptySet(),
+)
 
 /**
  * Drives the parts of V2EX that only exist as HTML forms, not the JSON API: posting a
@@ -90,10 +111,182 @@ class WebSessionService @Inject constructor(
         }
     }
 
+    /**
+     * 网页收藏列表：GET /my/topics 分页拉全（每页 20 条，最多 [maxPages] 页）。
+     * 未登录会被重定向到 /signin，此时抛错让调用方静默跳过。
+     */
+    suspend fun favoriteTopics(maxPages: Int = 10): Result<List<ScrapedFavorite>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val all = mutableListOf<ScrapedFavorite>()
+            for (page in 1..maxPages.coerceIn(1, 10)) {
+                val doc = fetchDocument(if (page == 1) "$BASE/my/topics" else "$BASE/my/topics?p=$page")
+                val rows = doc.select("span.item_title > a.topic-link")
+                if (rows.isEmpty()) {
+                    if (page == 1 && doc.select("a[href*=/signin]").isNotEmpty()) error("未登录")
+                    break
+                }
+                for (link in rows) {
+                    val id = Regex("""/t/(\d+)""").find(link.attr("href"))?.groupValues?.get(1)?.toLongOrNull()
+                        ?: continue
+                    val cell = link.closest(".cell")
+                    val nodeLink = cell?.selectFirst("a.node")
+                    val author = cell?.selectFirst("strong > a")?.text().orEmpty()
+                    val replies = cell?.selectFirst("a.count_livid, a.count_orange, a.count_gray")
+                        ?.text()?.toIntOrNull() ?: 0
+                    all += ScrapedFavorite(
+                        topicId = id,
+                        title = link.text(),
+                        nodeName = nodeLink?.attr("href")?.substringAfterLast('/').orEmpty(),
+                        nodeTitle = nodeLink?.text().orEmpty(),
+                        authorName = author,
+                        replies = replies,
+                    )
+                }
+                if (rows.size < 20) break // 不满一页 = 最后一页
+            }
+            all
+        }
+    }
+
+    /** 网页「我收藏的节点」（/my/nodes）— API 2.0 没有关注节点接口。 */
+    suspend fun favoriteNodeNames(): Result<List<String>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val doc = fetchDocument("$BASE/my/nodes")
+            if (doc.select("a[href*=/signin]").isNotEmpty() && doc.select("a[href^=/go/]").isEmpty()) error("未登录")
+            doc.select("a[href^=/go/]")
+                .mapNotNull { Regex("""^/go/([a-zA-Z0-9_-]+)$""").find(it.attr("href"))?.groupValues?.get(1) }
+                .distinct()
+        }
+    }
+
+    /**
+     * 一次抓取话题页，同时解析浏览数、附言与 PRO 徽章 —— 三者都只存在于网页，
+     * 分开请求会浪费整次网页往返。
+     */
+    suspend fun topicPageExtras(topicId: Long): TopicPageExtras = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = Request.Builder().url("$BASE/t/$topicId").build()
+            val html = okHttpClient.newCall(request).execute().use { it.body?.string().orEmpty() }
+            TopicPageExtras(
+                views = Regex("""([\d,]+)\s*(?:views|次点击)""").find(html)
+                    ?.groupValues?.get(1)?.filter(Char::isDigit)?.toIntOrNull(),
+                appends = extractAppends(html),
+                proMembers = extractProMembers(html),
+            )
+        }.getOrDefault(TopicPageExtras())
+    }
+
+    /**
+     * 解析附言块。新版结构：`<div class="subtle"><span class="fade">第 1 条附言 · 时间</span>
+     * <div class="topic_content">…</div></div>`；旧帖仍可能是 topic_append 结构。
+     */
+    private fun extractAppends(html: String): List<TopicAppend> {
+        val result = mutableListOf<TopicAppend>()
+        val supplementPattern = Regex(
+            """<div class="subtle">[\s\S]*?<span class="fade">[^<]*?(\d+)[^<]*?·\s*([^<]+)</span>[\s\S]*?<div class="topic_content">([\s\S]*?)</div>""",
+        )
+        for (match in supplementPattern.findAll(html)) {
+            val content = match.groupValues[3].trim()
+            if (content.isEmpty()) continue
+            result += TopicAppend(
+                index = match.groupValues[1].toIntOrNull() ?: (result.size + 1),
+                timeLabel = match.groupValues[2].replace("&nbsp;", "").trim(),
+                contentHtml = content,
+            )
+        }
+        val legacyPattern = Regex(
+            """<div class="topic_append">[\s\S]*?<span class="time">([^<]+)</span>[\s\S]*?<div class="topic_append_content">([\s\S]*?)</div>""",
+        )
+        for (match in legacyPattern.findAll(html)) {
+            result += TopicAppend(
+                index = result.size + 1,
+                timeLabel = match.groupValues[1].trim(),
+                contentHtml = match.groupValues[2].trim(),
+            )
+        }
+        return result
+    }
+
+    /**
+     * 本页佩戴 PRO 徽章的用户名。徽章容器紧跟在作者自己的 /member/ 链接后面，
+     * 两组匹配都按文档顺序返回，单向游走即可配对。
+     */
+    private fun extractProMembers(html: String): Set<String> {
+        val members = Regex("""/member/([A-Za-z0-9_-]+)""").findAll(html).toList()
+        if (members.isEmpty()) return emptySet()
+        val badges = Regex("""<div class="badge pro">""").findAll(html).toList()
+        val found = mutableSetOf<String>()
+        var cursor = 0
+        for (badge in badges) {
+            while (cursor + 1 < members.size && members[cursor + 1].range.first < badge.range.first) cursor++
+            if (members[cursor].range.first < badge.range.first) found += members[cursor].groupValues[1]
+        }
+        return found
+    }
+
+    /**
+     * 发布新主题并返回其 id。API 没有写端点，走网页 /write 表单（once + POST）。
+     * 成功只认落在真实 /t/<id> 的重定向；response body 回显草稿的拒绝页绝不能当成功。
+     * 无法确认时向 API 查询「我最近的话题」兜底，避免误报失败导致重复发帖。
+     */
+    suspend fun createTopic(
+        title: String,
+        content: String,
+        nodeName: String,
+        recentTopicIdByTitle: suspend (String) -> Long?,
+    ): Result<Long> = withContext(Dispatchers.IO) {
+        runCatching {
+            val trimmedTitle = title.trim()
+            require(trimmedTitle.isNotEmpty()) { "标题不能为空" }
+            require(nodeName.isNotEmpty()) { "请先选择节点" }
+
+            val formPath = "$BASE/write?node=$nodeName"
+            val form = fetchDocument(formPath)
+            if (mentionsCaptcha(form.html())) error("V2EX 要求验证码，这一步只能在网页完成")
+            val once = extractOnce(form) ?: error("会话可能已失效，请重新登录")
+
+            val body = FormBody.Builder()
+                .add("title", trimmedTitle)
+                .add("content", content)
+                .add("node_name", nodeName)
+                .add("syntax", "markdown")
+                .add("once", once)
+                .build()
+            val request = Request.Builder()
+                .url("$BASE/write")
+                .header("Referer", formPath)
+                .post(body)
+                .build()
+            okHttpClient.newCall(request).execute().use { response ->
+                // 快路径：重定向直接落到了新帖。
+                val finalPath = response.request.url.encodedPath
+                Regex("""^/t/(\d+)$""").find(finalPath)?.groupValues?.get(1)?.toLongOrNull()?.let { return@use it }
+
+                val html = response.body?.string().orEmpty()
+                Jsoup.parse(html).selectFirst("div.problem")?.let { problem ->
+                    error(problem.text().ifBlank { "发布被拒绝，请稍后重试" })
+                }
+                if (mentionsCaptcha(html)) error("V2EX 要求验证码，这一步只能在网页完成")
+
+                // 没有重定向也没有错误页 —— 问 API 帖子是否已存在，避免误报失败。
+                for (attempt in 0 until 3) {
+                    if (attempt > 0) delay(2_000)
+                    recentTopicIdByTitle(trimmedTitle)?.let { return@use it }
+                }
+                error("发布结果未确认。请到网页查看是否已发出，避免重复发送。")
+            }
+        }
+    }
+
+    private fun mentionsCaptcha(html: String): Boolean = html.contains("captcha") || html.contains("验证码")
+
     /** Called after a successful WebView login — see WebLoginScreen. */
     fun saveWebSession(cookieHeader: String, username: String) {
+        // 新登录整体替换会话，不与旧 cookie 合并 —— 混入过期条目会让后续网页请求被拒。
+        cookieJar.clear()
         cookieJar.setCookieHeader(cookieHeader)
         secureStore.sessionUsername = username
+        secureStore.webLoggedIn = true
     }
 
     fun signOutWebSession() {

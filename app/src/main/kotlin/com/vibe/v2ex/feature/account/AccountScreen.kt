@@ -86,12 +86,26 @@ fun AccountScreen(onBack: () -> Unit, viewModel: AccountViewModel = hiltViewMode
                         Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
                             Text(uiState.sessionUsername ?: "已登录", fontWeight = FontWeight.Bold)
                             Text(
-                                "网页会话已连接，可在 app 内直接回复",
+                                text = if (uiState.sessionExpired == true) {
+                                    "会话已失效，请重新登录"
+                                } else {
+                                    "网页会话已连接，可在 app 内直接回复"
+                                },
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = if (uiState.sessionExpired == true) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                             )
                         }
                     }
+                }
+                if (uiState.sessionExpired == true) {
+                    Button(
+                        onClick = viewModel::openWebLogin,
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    ) { Text("重新登录") }
                 }
                 OutlinedButton(
                     onClick = viewModel::signOutWebSession,

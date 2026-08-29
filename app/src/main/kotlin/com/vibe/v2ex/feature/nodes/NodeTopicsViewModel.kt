@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.vibe.v2ex.data.datastore.FollowedNodesStore
+import com.vibe.v2ex.data.datastore.ReadStateStore
+import com.vibe.v2ex.data.datastore.SettingsDataStore
 import com.vibe.v2ex.data.model.Topic
 import com.vibe.v2ex.data.nodes.NodeCatalog
 import com.vibe.v2ex.data.remote.V2exApiV1
@@ -39,6 +41,8 @@ data class NodeTopicsUiState(
     val isLoadingMore: Boolean = false,
     val reachedEnd: Boolean = false,
     val isFollowed: Boolean = false,
+    val readIds: Set<Long> = emptySet(),
+    val dimReadTopics: Boolean = false,
     val error: String? = null,
 ) {
     val topics: List<Topic>
@@ -60,6 +64,8 @@ class NodeTopicsViewModel @Inject constructor(
     private val apiV2: V2exApiV2,
     private val followedNodesStore: FollowedNodesStore,
     private val nodesRepository: NodesRepository,
+    readStateStore: ReadStateStore,
+    settingsDataStore: SettingsDataStore,
 ) : ViewModel() {
     private val nodeName: String = savedStateHandle.toRoute<Route.NodeTopics>().nodeName
 
@@ -80,6 +86,12 @@ class NodeTopicsViewModel @Inject constructor(
             followedNodesStore.names.collect { names ->
                 _uiState.update { it.copy(isFollowed = nodeName in names) }
             }
+        }
+        viewModelScope.launch {
+            readStateStore.readIds.collect { ids -> _uiState.update { it.copy(readIds = ids) } }
+        }
+        viewModelScope.launch {
+            settingsDataStore.dimReadTopics.collect { dim -> _uiState.update { it.copy(dimReadTopics = dim) } }
         }
     }
 

@@ -56,7 +56,10 @@ import com.vibe.v2ex.feature.home.TAB_BAR_CLEARANCE
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NotificationsScreen(viewModel: NotificationsViewModel = hiltViewModel()) {
+fun NotificationsScreen(
+    onTopicClick: (Long) -> Unit = {},
+    viewModel: NotificationsViewModel = hiltViewModel(),
+) {
     val uiState by viewModel.uiState.collectAsState()
 
     // 每次回到本 tab 都重新拉取，顺带重新检查 Token 是否已经配置。
@@ -130,7 +133,11 @@ fun NotificationsScreen(viewModel: NotificationsViewModel = hiltViewModel()) {
                     CardGroupItem(position = cardGroupPosition(index, uiState.visibleRows.lastIndex)) {
                         NotificationRowItem(
                             row = row,
-                            onClick = { viewModel.markSeen(row.id) },
+                            // 点击 = 标记已读 + 跳到对应帖子（mirrors iOS 的通知行 NavigationLink）。
+                            onClick = {
+                                viewModel.markSeen(row.id)
+                                row.topicId?.let(onTopicClick)
+                            },
                             onMarkSeen = { viewModel.markSeen(row.id) },
                             onDelete = { viewModel.delete(row.id) },
                         )
