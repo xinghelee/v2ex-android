@@ -1,6 +1,7 @@
 # V2EX for Android
 
-面向个人使用的 V2EX Android 客户端。Kotlin + Jetpack Compose 构建， [iOS 版](https://github.com/xinghelee/v2ex) 数据来自 V2EX API（v1/v2）、网页会话和 sov2ex 搜索。
+面向个人使用的 V2EX Android 客户端。Kotlin + Jetpack Compose 构建， 数据来自 V2EX API（v1/v2）、网页会话和 sov2ex 搜索。
+
 
 ![手机与折叠屏](docs/screenshots.png)
 
@@ -83,3 +84,5 @@ app/src/main/kotlin/com/vibe/v2ex/
 - App 内回复、发主题、收藏同步需要网页会话（WebView 登录）；V2EX 无开放的写 API，写操作走与网页相同的表单
 - API 频率上限 600 次/小时/IP，「关注」聚合与自动离线均采用串行请求控制配额
 - 折叠屏：外屏与手机一致；展开态为拉伸单列，未做大屏双栏
+
+[iOS 版本](https://github.com/xinghelee/v2ex)
