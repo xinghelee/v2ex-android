@@ -1,6 +1,6 @@
 # V2EX for Android
 
-面向个人使用的 V2EX Android 客户端。Kotlin + Jetpack Compose 构建，是 [iOS 版](https://github.com/xinghelee/v2ex) 的功能对齐移植，数据来自 V2EX API（v1/v2）、网页会话和 sov2ex 搜索。
+面向个人使用的 V2EX Android 客户端。Kotlin + Jetpack Compose 构建， [iOS 版](https://github.com/xinghelee/v2ex) 数据来自 V2EX API（v1/v2）、网页会话和 sov2ex 搜索。
 
 ![手机与折叠屏](docs/screenshots.png)
 
