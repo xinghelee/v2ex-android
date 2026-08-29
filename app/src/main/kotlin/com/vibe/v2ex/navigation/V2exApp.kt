@@ -36,6 +36,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -86,6 +92,13 @@ private val TABS = listOf(
     TabSpec(Route.Profile, "我的", Icons.Outlined.Person, Icons.Filled.Person, routeMatcher(Route.Profile)),
 )
 
+private fun NavDestination.isTab(): Boolean = TABS.any { it.matches(this) }
+
+// navigation-compose 默认转场是 700ms 淡入淡出，返回时明显拖沓；
+// 换成 iOS 式 300ms 横滑（push 右进 / pop 右出），Tab 间保留短淡入淡出。
+private const val NAV_ANIM_MS = 300
+private const val TAB_ANIM_MS = 200
+
 /** 底部「通知」角标的数据桥 — UnreadNotificationsStore 的 StateFlow 化。 */
 @dagger.hilt.android.lifecycle.HiltViewModel
 class TabBadgeViewModel @javax.inject.Inject constructor(
@@ -131,6 +144,34 @@ fun V2exApp(badgeViewModel: TabBadgeViewModel = androidx.hilt.navigation.compose
             navController = navController,
             startDestination = Route.Home,
             modifier = Modifier.fillMaxSize().padding(innerPadding),
+            enterTransition = {
+                if (initialState.destination.isTab() && targetState.destination.isTab()) {
+                    fadeIn(tween(TAB_ANIM_MS))
+                } else {
+                    slideInHorizontally(tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { it }
+                }
+            },
+            exitTransition = {
+                if (initialState.destination.isTab() && targetState.destination.isTab()) {
+                    fadeOut(tween(TAB_ANIM_MS))
+                } else {
+                    slideOutHorizontally(tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { -it / 4 }
+                }
+            },
+            popEnterTransition = {
+                if (initialState.destination.isTab() && targetState.destination.isTab()) {
+                    fadeIn(tween(TAB_ANIM_MS))
+                } else {
+                    slideInHorizontally(tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { -it / 4 }
+                }
+            },
+            popExitTransition = {
+                if (initialState.destination.isTab() && targetState.destination.isTab()) {
+                    fadeOut(tween(TAB_ANIM_MS))
+                } else {
+                    slideOutHorizontally(tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { it }
+                }
+            },
         ) {
             composable<Route.Home> {
                 HomeScreen(
