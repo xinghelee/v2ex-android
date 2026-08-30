@@ -54,6 +54,7 @@ data class HomeUiState(
     val readIds: Set<Long> = emptySet(),
     val dimReadTopics: Boolean = false,
     val offlineIds: Set<Long> = emptySet(),
+    val communityPulseEnabled: Boolean = true,
 ) {
     val currentFeed: HomeFeed get() = feeds.getOrElse(currentIndex) { HomeFeed.All }
 }
@@ -78,6 +79,11 @@ class HomeViewModel @Inject constructor(
         }
         viewModelScope.launch {
             settingsDataStore.dimReadTopics.collect { dim -> _uiState.update { it.copy(dimReadTopics = dim) } }
+        }
+        viewModelScope.launch {
+            settingsDataStore.communityPulseEnabled.collect { enabled ->
+                _uiState.update { it.copy(communityPulseEnabled = enabled) }
+            }
         }
         viewModelScope.launch {
             offlineRepository.observeAll()

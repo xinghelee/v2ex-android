@@ -8,7 +8,7 @@ sealed interface Route {
     @Serializable data object Notifications : Route
     @Serializable data object Profile : Route
 
-    @Serializable data class Topic(val topicId: Long) : Route
+    @Serializable data class Topic(val topicId: Long, val initialFloor: Int? = null) : Route
     @Serializable data class NodeTopics(val nodeName: String) : Route
     @Serializable data object Search : Route
     @Serializable data object Login : Route

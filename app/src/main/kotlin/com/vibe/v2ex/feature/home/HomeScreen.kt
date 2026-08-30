@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Search
@@ -41,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vibe.v2ex.data.model.Topic
@@ -51,6 +54,7 @@ import com.vibe.v2ex.designsystem.GlassCircleButton
 import com.vibe.v2ex.designsystem.LocalV2Dark
 import com.vibe.v2ex.designsystem.OfflineBadge
 import com.vibe.v2ex.designsystem.PromotionBadge
+import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.cardGroupPosition
 import kotlinx.coroutines.launch
 
@@ -63,6 +67,7 @@ fun HomeScreen(
     onTopicClick: (Long) -> Unit,
     onComposeClick: () -> Unit,
     onSearchClick: () -> Unit = {},
+    onNodeClick: (String) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -137,10 +142,12 @@ fun HomeScreen(
                 featuredBadge = if (feed == HomeFeed.Hot) "今日最热" else "最新活跃",
                 readIds = if (uiState.dimReadTopics) uiState.readIds else emptySet(),
                 offlineIds = uiState.offlineIds,
+                showCommunityPulse = feed == HomeFeed.All && uiState.communityPulseEnabled,
                 onRefresh = {
                     if (pagerState.currentPage == page) viewModel.refresh(feed)
                 },
                 onTopicClick = onTopicClick,
+                onNodeClick = onNodeClick,
             )
         }
     }
@@ -196,8 +203,10 @@ private fun FeedPage(
     featuredBadge: String,
     readIds: Set<Long> = emptySet(),
     offlineIds: Set<Long> = emptySet(),
+    showCommunityPulse: Boolean,
     onRefresh: () -> Unit,
     onTopicClick: (Long) -> Unit,
+    onNodeClick: (String) -> Unit,
 ) {
     PullToRefreshBox(
         isRefreshing = isLoading && topics != null,
@@ -251,6 +260,15 @@ private fun FeedPage(
                         bottom = TAB_BAR_CLEARANCE,
                     ),
                 ) {
+                    if (showCommunityPulse) {
+                        item(key = "community-pulse") {
+                            CommunityPulseCard(
+                                topics = topics,
+                                onNodeClick = onNodeClick,
+                                modifier = Modifier.padding(bottom = 10.dp),
+                            )
+                        }
+                    }
                     item(key = "featured-${featured.id}") {
                         FeaturedTopicCard(
                             topic = featured,
@@ -273,6 +291,99 @@ private fun FeedPage(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+private data class CommunitySignal(
+    val name: String,
+    val title: String,
+    val topicCount: Int,
+    val replies: Int,
+) {
+    val score: Int get() = replies + topicCount * 2
+}
+
+/** Public-feed snapshot: where the current conversation is concentrated. */
+@Composable
+private fun CommunityPulseCard(
+    topics: List<Topic>,
+    onNodeClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val sampled = topics.take(30)
+    val signals = sampled
+        .filter { !it.node?.name.isNullOrBlank() }
+        .groupBy { it.node!!.name }
+        .map { (name, nodeTopics) ->
+            CommunitySignal(
+                name = name,
+                title = nodeTopics.first().nodeTitle.ifBlank { name },
+                topicCount = nodeTopics.size,
+                replies = nodeTopics.sumOf { it.replies },
+            )
+        }
+        .sortedWith(compareByDescending<CommunitySignal> { it.score }.thenBy { it.title })
+        .take(3)
+    if (signals.isEmpty()) return
+
+    val maximum = signals.maxOf { it.score }.coerceAtLeast(1)
+    V2Card(modifier = modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("社区脉搏", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "当前讨论集中在哪里",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    "${sampled.size} 个话题 · ${sampled.sumOf { it.replies }} 条回复",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
+            signals.forEach { signal ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onNodeClick(signal.name) }
+                        .padding(vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        signal.title,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        modifier = Modifier.width(76.dp),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(7.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(signal.score.toFloat() / maximum)
+                                .height(7.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)),
+                        )
+                    }
+                    Text(
+                        signal.replies.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.width(38.dp),
+                    )
                 }
             }
         }

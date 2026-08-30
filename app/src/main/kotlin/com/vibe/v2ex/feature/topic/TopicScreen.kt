@@ -2,6 +2,7 @@ package com.vibe.v2ex.feature.topic
 
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,6 +61,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -71,6 +73,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -91,6 +95,8 @@ import com.vibe.v2ex.designsystem.cardGroupPosition
 import com.vibe.v2ex.designsystem.relativeTimeText
 import java.util.Locale
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** 未选中 mini pill 的底色 rgba(118,118,128,0.1)（设计稿 04）。 */
 private val PillNeutralBg = Color(0x1A767680)
@@ -101,6 +107,7 @@ fun TopicScreen(
     onBack: () -> Unit,
     onNodeClick: (String) -> Unit = {},
     onMemberClick: (String) -> Unit = {},
+    onSettingsClick: () -> Unit = {},
     viewModel: TopicViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -108,11 +115,54 @@ fun TopicScreen(
     val context = LocalContext.current
     val listState = rememberLazyListState()
     val composerFocus = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
     var showShareCard by remember { mutableStateOf(false) }
+    var showShareText by remember { mutableStateOf(false) }
+    var highlightedReplyId by remember { mutableStateOf<Long?>(null) }
+
+    val jumpToFloor: (Int) -> Unit = { floor ->
+        val target = uiState.replies.firstOrNull { it.floor == floor }
+        if (target != null) {
+            val targetReplies = if (uiState.onlyPoster && !target.isAuthor) {
+                viewModel.toggleOnlyPoster()
+                uiState.replies
+            } else {
+                uiState.visibleReplies
+            }
+            val targetIndex = targetReplies.indexOfFirst { it.reply.id == target.reply.id }
+            highlightedReplyId = target.reply.id
+            scope.launch {
+                // A filter change materializes the hidden rows on the next composition.
+                delay(40)
+                if (targetIndex >= 0) {
+                    listState.animateScrollToItem(
+                        index = targetIndex + replyListOffset(targetReplies.size),
+                        scrollOffset = -120,
+                    )
+                }
+                delay(2_500)
+                if (highlightedReplyId == target.reply.id) highlightedReplyId = null
+            }
+        }
+    }
 
     if (showShareCard) {
         uiState.topic?.let { topic ->
-            TopicShareCardSheet(topic = topic, onDismiss = { showShareCard = false })
+            TopicShareCardSheet(
+                topic = topic,
+                summary = uiState.summary,
+                onDismiss = { showShareCard = false },
+            )
+        }
+    }
+    if (showShareText) {
+        uiState.topic?.let { topic ->
+            TopicShareTextSheet(
+                topic = topic,
+                summary = uiState.summary,
+                replies = uiState.replies,
+                onDismiss = { showShareText = false },
+            )
         }
     }
 
@@ -128,17 +178,17 @@ fun TopicScreen(
         val floor = uiState.pendingRestoreFloor ?: return@LaunchedEffect
         val index = uiState.visibleReplies.indexOfFirst { it.floor == floor }
         if (index >= 0) {
-            listState.scrollToItem(index + 2)
+            listState.scrollToItem(index + replyListOffset(uiState.visibleReplies.size))
             viewModel.consumeRestoreFloor()
         }
     }
 
     // 滚动时上报当前可见楼层（防抖写盘在 VM 内做）。
-    LaunchedEffect(listState, uiState.onlyPoster) {
+    LaunchedEffect(listState, uiState.onlyPoster, uiState.onlyMine, uiState.replies.size) {
         snapshotFlow { listState.firstVisibleItemIndex }
             .distinctUntilChanged()
             .collect { firstIndex ->
-                val replyIndex = firstIndex - 2
+                val replyIndex = firstIndex - replyListOffset(uiState.visibleReplies.size)
                 uiState.visibleReplies.getOrNull(replyIndex)?.let { viewModel.onFloorVisible(it.floor) }
             }
     }
@@ -159,12 +209,7 @@ fun TopicScreen(
                 onToggleFavorite = viewModel::toggleFavorite,
                 onToggleOffline = viewModel::toggleOffline,
                 onShareLink = {
-                    val topic = uiState.topic ?: return@TopicTopBar
-                    val send = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, "${topic.title}\n${topic.webUrl}")
-                    }
-                    context.startActivity(Intent.createChooser(send, "分享话题"))
+                    if (uiState.topic != null) showShareText = true
                 },
                 onShareCard = { showShareCard = true },
                 onOpenInBrowser = {
@@ -216,11 +261,33 @@ fun TopicScreen(
                                 ReplyHeaderRow(
                                     count = topic.replies,
                                     onlyPoster = uiState.onlyPoster,
+                                    onlyMine = uiState.onlyMine,
                                     onToggleOnlyPoster = viewModel::toggleOnlyPoster,
+                                    onToggleOnlyMine = viewModel::toggleOnlyMine,
+                                )
+                            }
+                            item(key = "ai-summary") {
+                                TopicSummaryCard(
+                                    summary = uiState.summary,
+                                    isGenerating = uiState.isGeneratingSummary,
+                                    error = uiState.summaryError,
+                                    configured = uiState.isDeepSeekConfigured,
+                                    onGenerate = viewModel::generateSummary,
+                                    onConfigure = onSettingsClick,
+                                    modifier = Modifier.padding(bottom = 10.dp),
                                 )
                             }
                         }
                         val visible = uiState.visibleReplies
+                        if (visible.size > 1) {
+                            item(key = "discussion-track") {
+                                DiscussionTrack(
+                                    replies = visible,
+                                    onFloorClick = jumpToFloor,
+                                    modifier = Modifier.padding(bottom = 10.dp),
+                                )
+                            }
+                        }
                         itemsIndexed(visible, key = { _, item -> item.reply.id }) { index, floorReply ->
                             CardGroupItem(
                                 position = cardGroupPosition(index, visible.lastIndex),
@@ -229,6 +296,7 @@ fun TopicScreen(
                                 ReplyRow(
                                     floorReply = floorReply,
                                     isPro = floorReply.reply.authorName in uiState.proMembers,
+                                    highlighted = highlightedReplyId == floorReply.reply.id,
                                     onAuthorClick = onMemberClick,
                                     onReplyClick = {
                                         viewModel.prefillMention(
@@ -236,13 +304,18 @@ fun TopicScreen(
                                         )
                                         composerFocus.requestFocus()
                                     },
+                                    onQuoteClick = jumpToFloor,
                                 )
                             }
                         }
                         if (topic != null && visible.isEmpty() && !uiState.isLoading) {
                             item(key = "empty") {
                                 Text(
-                                    text = if (uiState.onlyPoster) "楼主还没有回复" else "还没有回复",
+                                    text = when {
+                                        uiState.onlyPoster -> "楼主还没有回复"
+                                        uiState.onlyMine -> "还没有与你有关的回复"
+                                        else -> "还没有回复"
+                                    },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center,
@@ -285,6 +358,8 @@ fun TopicScreen(
         )
     }
 }
+
+private fun replyListOffset(visibleReplyCount: Int): Int = 3 + if (visibleReplyCount > 1) 1 else 0
 
 /**
  * 草稿末尾正在输入的 `@name` 片段 → 本帖参与者中前缀匹配的候选（最近发言优先）。
@@ -401,7 +476,7 @@ private fun TopicTopBar(
                     },
                 )
                 DropdownMenuItem(
-                    text = { Text("分享链接") },
+                    text = { Text("分享文本模板") },
                     onClick = {
                         menuExpanded = false
                         onShareLink()
@@ -559,12 +634,140 @@ private fun ProBadge() {
     )
 }
 
+/** DeepSeek is opt-in: content is sent only after an explicit tap and successful results are cached. */
+@Composable
+private fun TopicSummaryCard(
+    summary: String?,
+    isGenerating: Boolean,
+    error: String?,
+    configured: Boolean,
+    onGenerate: () -> Unit,
+    onConfigure: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    V2Card(modifier = modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "✦ 讨论摘要",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "DeepSeek",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(V2Colors.accentSoft(LocalV2Dark.current))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+            when {
+                summary != null -> {
+                    Text(
+                        text = summaryMarkdown(summary),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "AI 生成，可能不准确",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.weight(1f),
+                        )
+                        SummaryAction("重新生成", enabled = !isGenerating, onClick = onGenerate)
+                    }
+                }
+                isGenerating -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text(
+                        "正在通过 DeepSeek 阅读这段讨论…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 10.dp),
+                    )
+                }
+                configured -> {
+                    Text(
+                        "生成时会把本帖正文和前 60 条回复发送给 DeepSeek；结果缓存在本机。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    SummaryAction("生成摘要", enabled = true, onClick = onGenerate)
+                }
+                else -> {
+                    Text(
+                        "配置 DeepSeek API Key 后，可手动提炼核心内容、主要观点与讨论分歧。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    SummaryAction("前往设置", enabled = true, onClick = onConfigure)
+                }
+            }
+            if (!error.isNullOrBlank()) {
+                Text(error, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryAction(text: String, enabled: Boolean, onClick: () -> Unit) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(V2Colors.accentSoft(LocalV2Dark.current))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 8.dp),
+    )
+}
+
+/** Small Markdown subset produced by the prompt: headings, bullets and bold spans. */
+internal fun summaryMarkdown(source: String) = buildAnnotatedString {
+    val normalized = source.lineSequence().joinToString("\n") { raw ->
+        val trimmed = raw.trimStart()
+        when {
+            Regex("^#{1,6}\\s+").containsMatchIn(trimmed) ->
+                "**${trimmed.replaceFirst(Regex("^#{1,6}\\s+"), "")}**"
+            trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("+ ") ->
+                "• ${trimmed.drop(2)}"
+            else -> raw
+        }
+    }
+    var index = 0
+    while (index < normalized.length) {
+        val start = normalized.indexOf("**", index)
+        if (start < 0) {
+            append(normalized.substring(index))
+            break
+        }
+        append(normalized.substring(index, start))
+        val end = normalized.indexOf("**", start + 2)
+        if (end < 0) {
+            append(normalized.substring(start))
+            break
+        }
+        pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+        append(normalized.substring(start + 2, end))
+        pop()
+        index = end + 2
+    }
+}
+
 /** 回复区头行：`N 条回复` + 「按楼层 / 只看楼主」mini pill。 */
 @Composable
 private fun ReplyHeaderRow(
     count: Int,
     onlyPoster: Boolean,
+    onlyMine: Boolean,
     onToggleOnlyPoster: () -> Unit,
+    onToggleOnlyMine: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -578,9 +781,20 @@ private fun ReplyHeaderRow(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
-        MiniPill(text = "按楼层", selected = !onlyPoster, onClick = { if (onlyPoster) onToggleOnlyPoster() })
+        MiniPill(
+            text = "按楼层",
+            selected = !onlyPoster && !onlyMine,
+            onClick = {
+                when {
+                    onlyPoster -> onToggleOnlyPoster()
+                    onlyMine -> onToggleOnlyMine()
+                }
+            },
+        )
         Spacer(Modifier.width(6.dp))
         MiniPill(text = "只看楼主", selected = onlyPoster, onClick = { if (!onlyPoster) onToggleOnlyPoster() })
+        Spacer(Modifier.width(6.dp))
+        MiniPill(text = "与我有关", selected = onlyMine, onClick = { if (!onlyMine) onToggleOnlyMine() })
     }
 }
 
@@ -604,15 +818,106 @@ private fun MiniPill(text: String, selected: Boolean, onClick: (() -> Unit)?) {
     )
 }
 
+/** Compact map of a long discussion. First/last are retained and intermediate floors are sampled evenly. */
+@Composable
+private fun DiscussionTrack(
+    replies: List<FloorReply>,
+    onFloorClick: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val maximum = 8
+    val sampled = if (replies.size <= maximum) {
+        replies
+    } else {
+        (0 until maximum).map { position ->
+            val index = ((position.toDouble() / (maximum - 1)) * (replies.size - 1)).toInt()
+            replies[index]
+        }.distinctBy { it.reply.id }
+    }
+
+    V2Card(modifier = modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "讨论轨道",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "${replies.size} 层",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 5.dp, start = 16.dp, end = 16.dp),
+                )
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    sampled.forEach { item ->
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(7.dp))
+                                .clickable { onFloorClick(item.floor) }
+                                .padding(vertical = 2.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(if (item.isAuthor) 10.dp else 9.dp)
+                                    .clip(if (item.isAuthor) RoundedCornerShape(2.dp) else CircleShape)
+                                    .background(
+                                        if (item.isAuthor) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.surface,
+                                    )
+                                    .let { dot ->
+                                        if (item.isAuthor) dot else dot.border(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                            CircleShape,
+                                        )
+                                    },
+                            )
+                            Text(
+                                item.floor.toString(),
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                color = if (item.isAuthor) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.padding(top = 3.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ReplyRow(
     floorReply: FloorReply,
     isPro: Boolean,
+    highlighted: Boolean,
     onAuthorClick: (String) -> Unit,
     onReplyClick: () -> Unit,
+    onQuoteClick: (Int) -> Unit,
 ) {
     val reply = floorReply.reply
-    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (highlighted) V2Colors.accentSoft(LocalV2Dark.current)
+                else Color.Transparent,
+            )
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(9.dp))
@@ -677,7 +982,9 @@ private fun ReplyRow(
                         .padding(6.dp),
                 )
             }
-            floorReply.quoted?.let { QuoteCapsule(it) }
+            floorReply.quoted?.let { quoted ->
+                QuoteCapsule(quoted = quoted, onClick = quoted.floor?.let { { onQuoteClick(it) } })
+            }
             ContentBlocksView(
                 blocks = floorReply.blocks,
                 textStyle = MaterialTheme.typography.bodyMedium,
@@ -704,12 +1011,13 @@ private fun AuthorBadge() {
 
 /** 引用链胶囊：左竖线 2.5dp accent 35%，`user #N` accent + 一行摘要 muted。 */
 @Composable
-private fun QuoteCapsule(quoted: QuotedReply) {
+private fun QuoteCapsule(quoted: QuotedReply, onClick: (() -> Unit)?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 6.dp)
-            .height(IntrinsicSize.Min),
+            .height(IntrinsicSize.Min)
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it },
     ) {
         Box(
             modifier = Modifier
@@ -717,7 +1025,7 @@ private fun QuoteCapsule(quoted: QuotedReply) {
                 .fillMaxHeight()
                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
         )
-        Column(modifier = Modifier.padding(start = 10.dp, top = 2.dp, bottom = 2.dp)) {
+        Column(modifier = Modifier.padding(start = 10.dp, top = 2.dp, bottom = 2.dp).weight(1f)) {
             Text(
                 text = buildString {
                     append(quoted.username)
@@ -736,6 +1044,14 @@ private fun QuoteCapsule(quoted: QuotedReply) {
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
+        }
+        if (onClick != null) {
+            Icon(
+                imageVector = Icons.Filled.ArrowUpward,
+                contentDescription = "跳到被引用的回复",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 8.dp, top = 4.dp).size(14.dp),
+            )
         }
     }
 }

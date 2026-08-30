@@ -5,6 +5,7 @@ import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,7 +54,7 @@ fun WebLoginScreen(onCancel: () -> Unit, onSuccess: (cookieHeader: String, usern
         },
     ) { innerPadding ->
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
             factory = { context ->
                 CookieManager.getInstance().apply {
                     setAcceptCookie(true)

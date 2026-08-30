@@ -2,6 +2,9 @@ package com.vibe.v2ex.feature.topic
 
 import android.content.Context
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.widget.Toast
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -18,12 +21,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,6 +69,7 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.vibe.v2ex.designsystem.htmlToPlainText
 
 // MARK: - 卡片数据
 
@@ -79,12 +85,13 @@ private data class ShareCardData(
     val replies: Int,
     val url: String,
     val avatarUrl: String?,
+    val summary: String?,
 ) {
     val shortUrl: String
         get() = url.removePrefix("https://").removePrefix("http://").removePrefix("www.")
 
     companion object {
-        fun from(topic: Topic): ShareCardData {
+        fun from(topic: Topic, summary: String?): ShareCardData {
             val (excerpt, truncated) = excerpt(topic.content.orEmpty())
             return ShareCardData(
                 title = topic.title,
@@ -96,6 +103,7 @@ private data class ShareCardData(
                 replies = topic.replies,
                 url = topic.webUrl,
                 avatarUrl = topic.member?.avatarUrl,
+                summary = summary,
             )
         }
 
@@ -127,13 +135,157 @@ private data class ShareCardData(
 
 // MARK: - 分享弹层
 
+/** 可检查、复制再分享的文本模板：标题、原帖、外链、AI 摘要与精选讨论。 */
+@Composable
+fun TopicShareTextSheet(
+    topic: Topic,
+    summary: String?,
+    replies: List<FloorReply>,
+    onDismiss: () -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var includeQuotes by remember { mutableStateOf(true) }
+    val text = remember(topic, summary, replies, includeQuotes) {
+        buildEnhancedShareText(topic, summary, replies, includeQuotes)
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(18.dp),
+        ) {
+            Text("分享话题", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                if (summary == null) "生成讨论摘要后，模板还会自动附带 AI 摘要。" else "已附带 DeepSeek 讨论摘要。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("附带精选讨论", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Switch(checked = includeQuotes, onCheckedChange = { includeQuotes = it })
+            }
+            SelectionContainer {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(300.dp)
+                        .verticalScroll(rememberScrollState())
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                        .padding(12.dp),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+            ) {
+                ShareSheetButton("取消", accent = false, onClick = onDismiss)
+                ShareSheetButton("复制", accent = false) {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("V2EX 话题", text))
+                    Toast.makeText(context, "分享文案已复制", Toast.LENGTH_SHORT).show()
+                }
+                ShareSheetButton("分享", accent = true) {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "分享话题"))
+                    onDismiss()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShareSheetButton(text: String, accent: Boolean, onClick: () -> Unit) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = if (accent) Color.White else MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 15.dp, vertical = 9.dp),
+    )
+}
+
+private fun buildEnhancedShareText(
+    topic: Topic,
+    summary: String?,
+    replies: List<FloorReply>,
+    includeQuotes: Boolean,
+): String = buildString {
+    append("# ").append(topic.title).append("\n\n")
+    append(topic.webUrl)
+
+    val links = extractExternalLinks(topic)
+    if (links.isNotEmpty()) {
+        append("\n\n相关链接：\n")
+        links.forEach { append(it).append('\n') }
+    }
+
+    summary?.trim()?.takeIf(String::isNotEmpty)?.let {
+        append("\nAI 摘要：\n").append(it)
+    }
+
+    if (includeQuotes) {
+        val quotes = selectShareQuotes(replies)
+        if (quotes.isNotEmpty()) {
+            append("\n\n精选讨论：\n")
+            quotes.forEach { (item, excerpt) ->
+                append("> ").append(excerpt)
+                    .append(" —— ").append(item.reply.authorName.ifBlank { "匿名" })
+                    .append(" #").append(item.floor).append('\n')
+            }
+        }
+    }
+}.trim()
+
+private fun extractExternalLinks(topic: Topic): List<String> {
+    val source = topic.content.orEmpty() + "\n" + topic.contentRendered.orEmpty()
+    return Regex("https?://[^\\s<>\\\"']+")
+        .findAll(source)
+        .map { it.value.trimEnd('.', ',', '。', '，', ')', ']', ';') }
+        .filterNot { it.startsWith("https://www.v2ex.com/t/") || it.startsWith("https://v2ex.com/t/") }
+        .distinct()
+        .take(3)
+        .toList()
+}
+
+private fun selectShareQuotes(replies: List<FloorReply>): List<Pair<FloorReply, String>> {
+    val candidates = replies.mapNotNull { item ->
+        val plain = htmlToPlainText(item.reply.contentRendered.ifBlank { item.reply.content })
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        plain.takeIf { it.length >= 24 }?.let { item to it.take(140).let { text -> if (text.length < it.length) "$text…" else text } }
+    }.sortedWith(
+        compareByDescending<Pair<FloorReply, String>> { it.first.isAuthor }
+            .thenByDescending { it.second.length },
+    )
+    val seenAuthors = mutableSetOf<String>()
+    return candidates.filter { seenAuthors.add(it.first.reply.authorName.lowercase()) }.take(2)
+}
+
 /**
  * 「分享为卡片」预览弹层：展示卡片 + 分享/取消。点分享时把卡片的绘制层
  * 录制成 PNG，经 FileProvider 交给系统分享面板。
  */
 @Composable
-fun TopicShareCardSheet(topic: Topic, onDismiss: () -> Unit) {
-    val data = remember(topic) { ShareCardData.from(topic) }
+fun TopicShareCardSheet(topic: Topic, summary: String? = null, onDismiss: () -> Unit) {
+    val data = remember(topic, summary) { ShareCardData.from(topic, summary) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val graphicsLayer = rememberGraphicsLayer()
@@ -319,6 +471,24 @@ private fun ShareCardContent(data: ShareCardData) {
                             .clip(RoundedCornerShape(10.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant)
                             .padding(horizontal = 7.dp, vertical = 3.dp),
+                    )
+                }
+            }
+            data.summary?.takeIf(String::isNotBlank)?.let { summary ->
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text(
+                        text = "✦ AI 摘要",
+                        style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                        color = accent,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(V2Colors.accentSoft(dark))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                    Text(
+                        text = summaryMarkdown(summary),
+                        style = TextStyle(fontSize = 14.sp, lineHeight = 21.sp),
+                        color = if (dark) V2Colors.BodyDark else V2Colors.BodyLight,
                     )
                 }
             }

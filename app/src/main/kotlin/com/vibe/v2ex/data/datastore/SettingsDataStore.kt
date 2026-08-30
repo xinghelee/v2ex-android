@@ -37,6 +37,7 @@ class SettingsDataStore @Inject constructor(
         val AUTO_OFFLINE_FOLLOWED_NODES = booleanPreferencesKey("auto_offline_followed_nodes")
         val AUTO_SYNC_FOLLOWED_NODES = booleanPreferencesKey("auto_sync_followed_nodes")
         val OFFLINE_ON_WIFI_ONLY = booleanPreferencesKey("offline_on_wifi_only")
+        val COMMUNITY_PULSE_ENABLED = booleanPreferencesKey("community_pulse_enabled")
     }
 
     val theme: Flow<AppTheme> = context.settingsDataStore.data.map { prefs ->
@@ -69,6 +70,8 @@ class SettingsDataStore @Inject constructor(
     val autoSyncFollowedNodes: Flow<Boolean> =
         context.settingsDataStore.data.map { it[Keys.AUTO_SYNC_FOLLOWED_NODES] ?: true }
     val offlineOnWifiOnly: Flow<Boolean> = context.settingsDataStore.data.map { it[Keys.OFFLINE_ON_WIFI_ONLY] ?: true }
+    val communityPulseEnabled: Flow<Boolean> =
+        context.settingsDataStore.data.map { it[Keys.COMMUNITY_PULSE_ENABLED] ?: true }
 
     suspend fun setTheme(theme: AppTheme) = context.settingsDataStore.edit { it[Keys.THEME] = theme.name }
     suspend fun setDarkMode(mode: DarkModePreference) = context.settingsDataStore.edit { it[Keys.DARK_MODE] = mode.name }
@@ -87,4 +90,6 @@ class SettingsDataStore @Inject constructor(
         context.settingsDataStore.edit { it[Keys.AUTO_SYNC_FOLLOWED_NODES] = enabled }
     suspend fun setOfflineOnWifiOnly(enabled: Boolean) =
         context.settingsDataStore.edit { it[Keys.OFFLINE_ON_WIFI_ONLY] = enabled }
+    suspend fun setCommunityPulseEnabled(enabled: Boolean) =
+        context.settingsDataStore.edit { it[Keys.COMMUNITY_PULSE_ENABLED] = enabled }
 }

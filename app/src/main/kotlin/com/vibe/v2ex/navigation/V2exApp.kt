@@ -1,5 +1,6 @@
 package com.vibe.v2ex.navigation
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +27,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.stateIn
 import androidx.compose.ui.Alignment
@@ -113,12 +116,28 @@ class TabBadgeViewModel @javax.inject.Inject constructor(
 }
 
 @Composable
-fun V2exApp(badgeViewModel: TabBadgeViewModel = androidx.hilt.navigation.compose.hiltViewModel()) {
+fun V2exApp(
+    deepLinkUri: Uri? = null,
+    onDeepLinkHandled: () -> Unit = {},
+    badgeViewModel: TabBadgeViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
+) {
     val navController = rememberNavController()
+    // 冷启动直接以 Deep Link 主题作为起点，避免先显示首页再跳转；后续 onNewIntent
+    // 收到的新链接仍由下面的 LaunchedEffect 推入当前返回栈。
+    val initialDeepLinkUri = remember { deepLinkUri }
+    val initialRoute = remember { deepLinkUri?.toTopicRoute() ?: Route.Home }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val onTab = TABS.any { tab -> currentDestination?.hierarchy?.any(tab.matches) == true }
     val unreadCount by badgeViewModel.unreadCount.collectAsState()
+
+    LaunchedEffect(deepLinkUri) {
+        val target = deepLinkUri?.toTopicRoute()
+        if (target != null && deepLinkUri != initialDeepLinkUri) {
+            navController.navigate(target) { launchSingleTop = true }
+        }
+        if (deepLinkUri != null) onDeepLinkHandled()
+    }
 
     androidx.compose.material3.Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -142,7 +161,7 @@ fun V2exApp(badgeViewModel: TabBadgeViewModel = androidx.hilt.navigation.compose
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Route.Home,
+            startDestination = initialRoute,
             modifier = Modifier.fillMaxSize().padding(innerPadding),
             enterTransition = {
                 if (initialState.destination.isTab() && targetState.destination.isTab()) {
@@ -172,12 +191,29 @@ fun V2exApp(badgeViewModel: TabBadgeViewModel = androidx.hilt.navigation.compose
                     slideOutHorizontally(tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { it }
                 }
             },
+            // 手势预测性返回（targetSdk 36+ 在 Android 16 上默认开启）不走上面的 pop 转场，
+            // 而是库默认的“缩小成卡片再滑走”；显式指定后手势返回同样横滑，且拖动时跟手。
+            predictivePopEnterTransition = { _ ->
+                if (initialState.destination.isTab() && targetState.destination.isTab()) {
+                    fadeIn(tween(TAB_ANIM_MS))
+                } else {
+                    slideInHorizontally(tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { -it / 4 }
+                }
+            },
+            predictivePopExitTransition = { _ ->
+                if (initialState.destination.isTab() && targetState.destination.isTab()) {
+                    fadeOut(tween(TAB_ANIM_MS))
+                } else {
+                    slideOutHorizontally(tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { it }
+                }
+            },
         ) {
             composable<Route.Home> {
                 HomeScreen(
                     onTopicClick = { id -> navController.navigate(Route.Topic(id)) },
                     onComposeClick = { navController.navigate(Route.Write()) },
                     onSearchClick = { navController.navigate(Route.Search) },
+                    onNodeClick = { name -> navController.navigate(Route.NodeTopics(name)) },
                 )
             }
             composable<Route.Nodes> {
@@ -215,6 +251,7 @@ fun V2exApp(badgeViewModel: TabBadgeViewModel = androidx.hilt.navigation.compose
                     onBack = navController::popBackStack,
                     onNodeClick = { name -> navController.navigate(Route.NodeTopics(name)) },
                     onMemberClick = { username -> navController.navigate(Route.Member(username)) },
+                    onSettingsClick = { navController.navigate(Route.Settings) },
                 )
             }
             composable<Route.Member> {
@@ -278,6 +315,23 @@ fun V2exApp(badgeViewModel: TabBadgeViewModel = androidx.hilt.navigation.compose
             }
         }
     }
+}
+
+internal fun Uri.toTopicRoute(): Route.Topic? {
+    if (scheme != "https" && scheme != "http") return null
+    val normalizedHost = host?.lowercase() ?: return null
+    if (normalizedHost !in setOf("v2ex.com", "www.v2ex.com", "global.v2ex.com", "origin.v2ex.com", "edge.v2ex.com")) {
+        return null
+    }
+    val topicId = Regex("^/t/(\\d+)").find(path.orEmpty())?.groupValues?.getOrNull(1)?.toLongOrNull()
+        ?: return null
+    val floor = Regex("^reply(\\d+)$", RegexOption.IGNORE_CASE)
+        .matchEntire(fragment.orEmpty())
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.toIntOrNull()
+        ?.takeIf { it > 0 }
+    return Route.Topic(topicId = topicId, initialFloor = floor)
 }
 
 /** 安卓常规通栏底栏（iOS 设计语言的皮肤）：卡片白底 + 0.5dp 顶部细线，accent 选中态。 */

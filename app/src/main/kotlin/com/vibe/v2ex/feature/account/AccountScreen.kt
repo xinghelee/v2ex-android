@@ -4,7 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -13,12 +15,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -30,6 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.vibe.v2ex.designsystem.SecureCredentialField
+import com.vibe.v2ex.designsystem.V2Card
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,22 +122,41 @@ fun AccountScreen(onBack: () -> Unit, viewModel: AccountViewModel = hiltViewMode
                 }
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            Text("Personal Access Token", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "用于通知、个人资料、长帖分页等 API 2.0 功能，从 v2ex.com/settings/tokens 获取",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
-            )
-            OutlinedTextField(
-                value = uiState.personalAccessToken,
-                onValueChange = viewModel::onPatChange,
-                label = { Text("Personal Access Token") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            V2Card {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Personal Access Token", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "用于通知、个人资料和长帖分页",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (uiState.personalAccessToken.isNotBlank()) {
+                            Text(
+                                "已配置",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    SecureCredentialField(
+                        value = uiState.personalAccessToken,
+                        onValueChange = viewModel::onPatChange,
+                        placeholder = "粘贴从 v2ex.com/settings/tokens 获取的 Token",
+                        modifier = Modifier.padding(top = 14.dp),
+                    )
+                    Text(
+                        "修改后自动加密保存在本机，不参与系统备份。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                }
+            }
         }
     }
 }

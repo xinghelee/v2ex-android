@@ -26,15 +26,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,6 +56,7 @@ import com.vibe.v2ex.data.datastore.DarkModePreference
 import com.vibe.v2ex.data.datastore.LineSpacingPreference
 import com.vibe.v2ex.data.datastore.MonoFontPreference
 import com.vibe.v2ex.designsystem.SectionHeader
+import com.vibe.v2ex.designsystem.SecureCredentialField
 import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.V2Colors
 import com.vibe.v2ex.designsystem.paletteFor
@@ -75,6 +81,7 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    var deepSeekKeyDraft by remember { mutableStateOf("") }
 
     // 从「账号」页返回后刷新登录状态展示。
     LaunchedEffect(Unit) { viewModel.refreshSessionState() }
@@ -230,6 +237,75 @@ fun SettingsScreen(
                 value = formatCacheSize(uiState.cacheByteSize),
                 showChevron = false,
                 onClick = viewModel::clearCache,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        SectionHeader("AI 摘要")
+        V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+            Column(modifier = Modifier.padding(18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("DeepSeek API Key", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (uiState.isDeepSeekConfigured) "已安全保存在本机" else "用于手动生成话题摘要",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (uiState.isDeepSeekConfigured) {
+                        Text(
+                            "已配置",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                SecureCredentialField(
+                    value = deepSeekKeyDraft,
+                    onValueChange = { deepSeekKeyDraft = it },
+                    placeholder = if (uiState.isDeepSeekConfigured) "输入新 Key 可替换" else "sk-…",
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (uiState.isDeepSeekConfigured) {
+                        TextButton(
+                            onClick = {
+                                    viewModel.clearDeepSeekApiKey()
+                                    deepSeekKeyDraft = ""
+                            },
+                        ) { Text("移除", color = MaterialTheme.colorScheme.error) }
+                    }
+                    FilledTonalButton(
+                        onClick = {
+                            viewModel.saveDeepSeekApiKey(deepSeekKeyDraft)
+                            deepSeekKeyDraft = ""
+                        },
+                        enabled = deepSeekKeyDraft.isNotBlank(),
+                        modifier = Modifier.padding(start = 6.dp),
+                    ) { Text(if (uiState.isDeepSeekConfigured) "更新" else "保存") }
+                }
+                Text(
+                    "仅在点击“生成摘要”时，帖子正文和部分回复才会发送给 DeepSeek。Key 不参与备份。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        SectionHeader("实验性功能")
+        V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+            SwitchRow(
+                label = "社区脉搏",
+                subtitle = "在首页显示活跃节点与回复分布",
+                checked = uiState.communityPulseEnabled,
+                onCheckedChange = viewModel::setCommunityPulseEnabled,
             )
         }
 

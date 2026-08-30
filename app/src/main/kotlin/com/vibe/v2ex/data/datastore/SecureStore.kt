@@ -40,6 +40,14 @@ class SecureStore @Inject constructor(
             prefs.edit().putString(KEY_PAT, cleaned).apply()
         }
 
+    /** DeepSeek key is device-only and protected by Android Keystore, just like the V2EX token. */
+    var deepSeekApiKey: String?
+        get() = prefs.getString(KEY_DEEPSEEK_API_KEY, null)?.filterNot(Char::isWhitespace)?.ifBlank { null }
+        set(value) {
+            val cleaned = value?.filterNot(Char::isWhitespace)?.ifBlank { null }
+            prefs.edit().putString(KEY_DEEPSEEK_API_KEY, cleaned).apply()
+        }
+
     var sessionCookieHeader: String?
         get() = prefs.getString(KEY_COOKIES, null)
         set(value) = prefs.edit().putString(KEY_COOKIES, value).apply()
@@ -59,6 +67,7 @@ class SecureStore @Inject constructor(
     val isTokenSet: Boolean get() = !personalAccessToken.isNullOrBlank()
     val isWebSessionActive: Boolean get() = webLoggedIn && !sessionCookieHeader.isNullOrBlank()
     val isSignedIn: Boolean get() = isTokenSet || isWebSessionActive
+    val isDeepSeekConfigured: Boolean get() = !deepSeekApiKey.isNullOrBlank()
 
     fun clearWebSession() {
         prefs.edit()
@@ -72,10 +81,15 @@ class SecureStore @Inject constructor(
         prefs.edit().remove(KEY_PAT).apply()
     }
 
+    fun clearDeepSeekApiKey() {
+        prefs.edit().remove(KEY_DEEPSEEK_API_KEY).apply()
+    }
+
     private companion object {
         const val KEY_PAT = "personal_access_token"
         const val KEY_COOKIES = "session_cookie_header"
         const val KEY_SESSION_USERNAME = "session_username"
         const val KEY_WEB_LOGGED_IN = "web_logged_in"
+        const val KEY_DEEPSEEK_API_KEY = "deepseek_api_key"
     }
 }

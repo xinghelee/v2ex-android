@@ -30,11 +30,13 @@ data class SettingsUiState(
     val autoSyncFollowedNodes: Boolean = true,
     val autoOfflineFollowedNodes: Boolean = true,
     val offlineOnWifiOnly: Boolean = true,
+    val communityPulseEnabled: Boolean = true,
     /** 离线缓存占用（JSON 字节近似值），供「清空缓存」行展示。 */
     val cacheByteSize: Int = 0,
     val isWebSessionActive: Boolean = false,
     val sessionUsername: String? = null,
     val isTokenSet: Boolean = false,
+    val isDeepSeekConfigured: Boolean = false,
 )
 
 @HiltViewModel
@@ -85,8 +87,9 @@ class SettingsViewModel @Inject constructor(
         appearance,
         reading,
         offlineRepository.observeAll().map { bundles -> bundles.sumOf { it.byteSize } },
+        settingsDataStore.communityPulseEnabled,
         refreshSession,
-    ) { appearance, reading, cacheBytes, _ ->
+    ) { appearance, reading, cacheBytes, communityPulseEnabled, _ ->
         SettingsUiState(
             theme = appearance.theme,
             darkMode = appearance.darkMode,
@@ -98,10 +101,12 @@ class SettingsViewModel @Inject constructor(
             autoSyncFollowedNodes = reading.autoSync,
             autoOfflineFollowedNodes = reading.autoOffline,
             offlineOnWifiOnly = reading.wifiOnly,
+            communityPulseEnabled = communityPulseEnabled,
             cacheByteSize = cacheBytes,
             isWebSessionActive = secureStore.isWebSessionActive,
             sessionUsername = secureStore.sessionUsername,
             isTokenSet = secureStore.isTokenSet,
+            isDeepSeekConfigured = secureStore.isDeepSeekConfigured,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
@@ -124,6 +129,18 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsDataStore.setAutoOfflineFollowedNodes(enabled) }
     fun setOfflineOnWifiOnly(enabled: Boolean) =
         viewModelScope.launch { settingsDataStore.setOfflineOnWifiOnly(enabled) }
+    fun setCommunityPulseEnabled(enabled: Boolean) =
+        viewModelScope.launch { settingsDataStore.setCommunityPulseEnabled(enabled) }
 
     fun clearCache() = viewModelScope.launch { offlineRepository.clear() }
+
+    fun saveDeepSeekApiKey(key: String) {
+        secureStore.deepSeekApiKey = key
+        refreshSession.value++
+    }
+
+    fun clearDeepSeekApiKey() {
+        secureStore.clearDeepSeekApiKey()
+        refreshSession.value++
+    }
 }

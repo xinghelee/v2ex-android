@@ -16,6 +16,7 @@ import com.vibe.v2ex.data.repository.FavoritesRepository
 import com.vibe.v2ex.data.repository.HistoryRepository
 import com.vibe.v2ex.data.repository.OfflineRepository
 import com.vibe.v2ex.data.repository.TopicRepository
+import com.vibe.v2ex.data.repository.TopicSummaryRepository
 import com.vibe.v2ex.designsystem.ContentBlock
 import com.vibe.v2ex.designsystem.htmlToPlainText
 import com.vibe.v2ex.designsystem.parseContentBlocks
@@ -58,6 +59,8 @@ data class TopicUiState(
     /** 本页佩戴 PRO 徽章的用户名（网页抓取，不落盘 — 订阅可能过期）。 */
     val proMembers: Set<String> = emptySet(),
     val onlyPoster: Boolean = false,
+    val onlyMine: Boolean = false,
+    val currentUsername: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
     val favorited: Boolean = false,
@@ -72,10 +75,28 @@ data class TopicUiState(
     val pendingRestoreFloor: Int? = null,
     val isWebSessionActive: Boolean = false,
     val message: String? = null,
+    val summary: String? = null,
+    val isGeneratingSummary: Boolean = false,
+    val summaryError: String? = null,
+    val isDeepSeekConfigured: Boolean = false,
 ) {
-    /** Floors are assigned before filtering, so quote references stay valid under 只看楼主. */
+    /** Floors are assigned before filtering, so quote references stay valid under every mode. */
     val visibleReplies: List<FloorReply>
-        get() = if (onlyPoster) replies.filter { it.isAuthor } else replies
+        get() = when {
+            onlyPoster -> replies.filter { it.isAuthor }
+            onlyMine -> replies.relatedTo(currentUsername)
+            else -> replies
+        }
+}
+
+private fun List<FloorReply>.relatedTo(username: String?): List<FloorReply> {
+    val name = username?.trim()?.takeIf(String::isNotEmpty) ?: return emptyList()
+    val mention = Regex("(?i)(?<![A-Za-z0-9_-])@${Regex.escape(name)}(?![A-Za-z0-9_-])")
+    val primary = filter { item ->
+        item.reply.authorName.equals(name, ignoreCase = true) || mention.containsMatchIn(item.reply.content)
+    }
+    val contextFloors = primary.mapNotNullTo(mutableSetOf()) { it.quoted?.floor }
+    return filter { it in primary || it.floor in contextFloors }
 }
 
 // Strips a leading `@user` / `@user #N` (plain or anchor-wrapped) off the rendered HTML while
@@ -97,16 +118,26 @@ class TopicViewModel @Inject constructor(
     private val readStateStore: ReadStateStore,
     private val settingsDataStore: SettingsDataStore,
     private val draftRepository: DraftRepository,
+    private val topicSummaryRepository: TopicSummaryRepository,
 ) : ViewModel() {
-    private val topicId: Long = savedStateHandle.toRoute<Route.Topic>().topicId
+    private val route: Route.Topic = savedStateHandle.toRoute()
+    private val topicId: Long = route.topicId
+    private val initialFloor: Int? = route.initialFloor
 
-    private val _uiState = MutableStateFlow(TopicUiState(isWebSessionActive = secureStore.isWebSessionActive))
+    private val _uiState = MutableStateFlow(
+        TopicUiState(
+            isWebSessionActive = secureStore.isWebSessionActive,
+            isDeepSeekConfigured = topicSummaryRepository.isConfigured,
+            currentUsername = secureStore.sessionUsername,
+        ),
+    )
     val uiState: StateFlow<TopicUiState> = _uiState.asStateFlow()
 
     private var rawReplies: List<Reply> = emptyList()
     private var replyDraftId: Long? = null
     private var draftSaveJob: Job? = null
     private var positionSaveJob: Job? = null
+    private var initialFloorHandled = false
 
     init {
         viewModelScope.launch { readStateStore.markRead(topicId) }
@@ -203,13 +234,67 @@ class TopicViewModel @Inject constructor(
                 topicBlocks = topicBlocks,
                 replies = threaded,
                 loadedFromOffline = loadedFromOffline,
+                pendingRestoreFloor = initialFloor
+                    ?.takeIf { floor -> !initialFloorHandled && floor > 0 && threaded.any { it.floor == floor } }
+                    ?: it.pendingRestoreFloor,
             )
         }
+        if (initialFloor != null && threaded.any { it.floor == initialFloor }) initialFloorHandled = true
+        val source = summarySource(topic, replies)
+        val cachedSummary = topicSummaryRepository.cached(topicId, source)
+        _uiState.update { it.copy(summary = cachedSummary, summaryError = null) }
+    }
+
+    fun generateSummary() {
+        val topic = _uiState.value.topic ?: return
+        if (_uiState.value.isGeneratingSummary) return
+        if (!topicSummaryRepository.isConfigured) {
+            _uiState.update { it.copy(summaryError = "请先在设置中配置 DeepSeek API Key") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(isGeneratingSummary = true, summaryError = null, isDeepSeekConfigured = true)
+            }
+            runCatching { topicSummaryRepository.generate(topicId, summarySource(topic, rawReplies)) }
+                .onSuccess { summary ->
+                    _uiState.update {
+                        it.copy(summary = summary, isGeneratingSummary = false, summaryError = null)
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isGeneratingSummary = false,
+                            summaryError = error.message ?: "摘要生成失败，请稍后重试",
+                        )
+                    }
+                }
+        }
+    }
+
+    private fun summarySource(topic: Topic, replies: List<Reply>): String {
+        val body = htmlToPlainText(topic.contentRendered.orEmpty().ifBlank { topic.content.orEmpty() })
+        val discussion = buildString {
+            append("标题：").append(topic.title).append('\n')
+            append("作者：").append(topic.authorName).append('\n')
+            append("正文：").append(body).append("\n\n回复：\n")
+            replies.sortedBy { it.id }.take(60).forEachIndexed { index, reply ->
+                append('#').append(index + 1).append(' ')
+                    .append(reply.authorName).append("：")
+                    .append(htmlToPlainText(reply.contentRendered.ifBlank { reply.content }))
+                    .append('\n')
+            }
+        }
+        // Bound request cost while keeping the beginning of the discussion deterministic for caching.
+        return discussion.take(24_000)
     }
 
     // MARK: 阅读进度
 
     private suspend fun restoreReadingPosition() {
+        // 外部链接的 #replyN 是用户本次明确意图，优先级高于本地保存的阅读进度。
+        if (initialFloor != null) return
         if (!settingsDataStore.rememberReadingPosition.first()) return
         val floor = readStateStore.position(topicId) ?: return
         if (floor > 1 && _uiState.value.replies.any { it.floor == floor }) {
@@ -232,7 +317,17 @@ class TopicViewModel @Inject constructor(
     }
 
     fun toggleOnlyPoster() {
-        _uiState.update { it.copy(onlyPoster = !it.onlyPoster) }
+        _uiState.update { it.copy(onlyPoster = !it.onlyPoster, onlyMine = false) }
+    }
+
+    fun toggleOnlyMine() {
+        _uiState.update { state ->
+            if (state.currentUsername.isNullOrBlank()) {
+                state.copy(message = "“只看与我有关”需要先连接 V2EX 网页账号")
+            } else {
+                state.copy(onlyMine = !state.onlyMine, onlyPoster = false)
+            }
+        }
     }
 
     // MARK: 收藏
