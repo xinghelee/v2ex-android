@@ -8,12 +8,25 @@ import com.vibe.v2ex.data.datastore.SettingsDataStore
 import com.vibe.v2ex.data.remote.WebSessionService
 import com.vibe.v2ex.data.repository.FavoritesRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/** 网页登录候选会话的确认结果。 */
+enum class WebLoginConfirmation {
+    /** 服务端认这份 cookie，已落盘。 */
+    ACCEPTED,
+
+    /** 服务端明确不认（还没登录完，或两步验证没走完）—— 登录页留在原地等用户继续。 */
+    NOT_SIGNED_IN,
+
+    /** 网络没给出结论。同样不落盘：与其存一份可能是匿名的会话，不如让用户重试。 */
+    UNVERIFIED,
+}
 
 data class AccountUiState(
     val webSessionActive: Boolean = false,
@@ -70,14 +83,27 @@ class AccountViewModel @Inject constructor(
     }
 
     /**
-     * WebView 报上来的候选会话。页面长得像已登录不算数 —— 先拿这份 cookie 请求
-     * `/settings` 确认；明确不通过（多半是两步验证还没走完）就返回 false，登录页
-     * 留在原地等用户走完。网络没给出结论时不拦人，照旧存下。
+     * WebView 报上来的候选会话。页面长得像已登录不算数 —— 必须拿这份 cookie 请求
+     * `/settings` 确认，只有明确通过才落盘。
+     *
+     * 刮用户名的兜底选择器会匹配到列表里任意一个楼主，所以未登录时逛首页也会产生
+     * 候选；网络失败就放行等于把这种匿名会话存下来，因此网络无结论时宁可让用户重试。
+     * cookie 刚写入偶尔还没生效，只对「没结论」重试，明确的不通过立即返回（未登录
+     * 浏览时每次翻页都要重试三次纯属浪费）。
      */
-    suspend fun confirmWebLogin(cookieHeader: String, username: String): Boolean {
-        if (webSessionService.verifyCookie(cookieHeader) == false) return false
-        onWebLoginSuccess(cookieHeader, username)
-        return true
+    suspend fun confirmWebLogin(cookieHeader: String, username: String): WebLoginConfirmation {
+        repeat(VERIFY_ATTEMPTS) { attempt ->
+            if (attempt > 0) delay(VERIFY_RETRY_DELAY_MS)
+            when (webSessionService.verifyCookie(cookieHeader)) {
+                true -> {
+                    onWebLoginSuccess(cookieHeader, username)
+                    return WebLoginConfirmation.ACCEPTED
+                }
+                false -> return WebLoginConfirmation.NOT_SIGNED_IN
+                null -> Unit
+            }
+        }
+        return WebLoginConfirmation.UNVERIFIED
     }
 
     fun onWebLoginSuccess(cookieHeader: String, username: String) {
@@ -108,5 +134,10 @@ class AccountViewModel @Inject constructor(
     fun onPatChange(value: String) {
         _uiState.value = _uiState.value.copy(personalAccessToken = value)
         secureStore.personalAccessToken = value.ifBlank { null }
+    }
+
+    private companion object {
+        const val VERIFY_ATTEMPTS = 3
+        const val VERIFY_RETRY_DELAY_MS = 800L
     }
 }
