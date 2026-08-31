@@ -69,6 +69,17 @@ class AccountViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(showWebLogin = false)
     }
 
+    /**
+     * WebView 报上来的候选会话。页面长得像已登录不算数 —— 先拿这份 cookie 请求
+     * `/settings` 确认；明确不通过（多半是两步验证还没走完）就返回 false，登录页
+     * 留在原地等用户走完。网络没给出结论时不拦人，照旧存下。
+     */
+    suspend fun confirmWebLogin(cookieHeader: String, username: String): Boolean {
+        if (webSessionService.verifyCookie(cookieHeader) == false) return false
+        onWebLoginSuccess(cookieHeader, username)
+        return true
+    }
+
     fun onWebLoginSuccess(cookieHeader: String, username: String) {
         webSessionService.saveWebSession(cookieHeader, username)
         _uiState.value = _uiState.value.copy(

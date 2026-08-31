@@ -7,6 +7,7 @@ import com.vibe.v2ex.data.model.Topic
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -68,6 +69,24 @@ class WebSessionService @Inject constructor(
             ?: doc.select("a[href*=once=]").firstOrNull()?.attr("href")
                 ?.substringAfter("once=")?.substringBefore("&")
 
+    /**
+     * 用指定 cookie 试一次 `/settings`，不写入任何本地状态。null = 网络没给出结论。
+     *
+     * 网页登录不能只看页面长相：两步验证没走完时，页面顶部同样渲染登录态导航、
+     * 也刮得到用户名，但那个 cookie 发不了帖也同步不了收藏。会话是否真的可用，
+     * 一律以能否停在 `/settings` 为准。
+     */
+    suspend fun verifyCookie(cookieHeader: String): Boolean? = withContext(Dispatchers.IO) {
+        // CookieJar 会用自己存的 cookie 覆盖掉手写的 Cookie 头，这一次请求单独关掉它。
+        val client = okHttpClient.newBuilder().cookieJar(CookieJar.NO_COOKIES).build()
+        val request = Request.Builder().url("$BASE/settings").header("Cookie", cookieHeader).build()
+        runCatching {
+            client.newCall(request).execute().use { response ->
+                response.isSuccessful && response.request.url.encodedPath == "/settings"
+            }
+        }.getOrNull()
+    }
+
     /** Valid iff HTTP 200 and the resolved response URL's path is exactly `/settings`. */
     suspend fun verifySession(): Boolean = withContext(Dispatchers.IO) {
         val request = Request.Builder().url("$BASE/settings").build()
@@ -125,6 +144,16 @@ class WebSessionService @Inject constructor(
      */
     suspend fun hotTopics(): List<Topic> = withContext(Dispatchers.IO) {
         parseTopicRows(fetchDocument("$BASE/?tab=hot"))
+    }
+
+    /**
+     * 网页版 R2（GET /?tab=r2）。R2 是网页端按投票算出来的首页排序，不是节点：
+     * v1 的 latest/hot 接口会忽略 `tab` 参数，v2 也没有 tabs 接口，只能读网页
+     * （mirrors iOS r2Topics）。未登录同样拿得到。
+     */
+    suspend fun r2Topics(): List<Topic> = withContext(Dispatchers.IO) {
+        // R2 页面会被 CDN 短暂缓存，带个独立查询参数，下拉刷新才能拿到新排序。
+        parseTopicRows(fetchDocument("$BASE/?tab=r2&_=${System.currentTimeMillis()}"))
     }
 
     /**

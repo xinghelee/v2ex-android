@@ -35,6 +35,12 @@ sealed interface HomeFeed {
         override val title = "最热"
     }
 
+    /** 网页端的投票排序，只有网页有；见 HomeRepository.r2Topics。 */
+    data object R2 : HomeFeed {
+        override val key = "r2"
+        override val title = "R2"
+    }
+
     data object Following : HomeFeed {
         override val key = "following"
         override val title = "关注"
@@ -46,7 +52,7 @@ sealed interface HomeFeed {
 }
 
 data class HomeUiState(
-    val feeds: List<HomeFeed> = listOf(HomeFeed.All, HomeFeed.Hot, HomeFeed.Following),
+    val feeds: List<HomeFeed> = listOf(HomeFeed.All, HomeFeed.Hot, HomeFeed.R2, HomeFeed.Following),
     val currentIndex: Int = 0,
     val topicsByFeed: Map<String, List<Topic>> = emptyMap(),
     val loadingFeeds: Set<String> = emptySet(),
@@ -101,7 +107,7 @@ class HomeViewModel @Inject constructor(
                 val nodeFeeds = names.take(MAX_NODE_CHIPS)
                     .map { HomeFeed.Node(it, NodeCatalog.displayName(it, liveTitles)) }
                 _uiState.update { state ->
-                    val feeds = listOf(HomeFeed.All, HomeFeed.Hot, HomeFeed.Following) + nodeFeeds
+                    val feeds = listOf(HomeFeed.All, HomeFeed.Hot, HomeFeed.R2, HomeFeed.Following) + nodeFeeds
                     state.copy(
                         feeds = feeds,
                         currentIndex = state.currentIndex.coerceIn(0, feeds.lastIndex),
@@ -142,6 +148,7 @@ class HomeViewModel @Inject constructor(
             val result = when (feed) {
                 HomeFeed.All -> repository.latestTopics()
                 HomeFeed.Hot -> repository.hotTopics()
+                HomeFeed.R2 -> repository.r2Topics()
                 HomeFeed.Following -> repository.followingTopics(followedNames)
                 is HomeFeed.Node -> repository.topicsInNode(feed.name)
             }

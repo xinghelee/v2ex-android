@@ -20,7 +20,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 data class ProfileUiState(
-    val isTokenSet: Boolean = false,
+    /** PAT 或网页会话任占其一就算已连接账号。 */
+    val isConnected: Boolean = false,
     val member: Member? = null,
     /** 我发布的话题（完整列表；「最近发布」只展示前 5 条，计数用全量）。 */
     val recentTopics: List<Topic> = emptyList(),
@@ -43,7 +44,7 @@ class ProfileViewModel @Inject constructor(
     offlineRepository: OfflineRepository,
     moderationStore: ModerationStore,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(ProfileUiState(isTokenSet = secureStore.isTokenSet))
+    private val _uiState = MutableStateFlow(ProfileUiState(isConnected = secureStore.isSignedIn))
     val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
 
     init {
@@ -74,9 +75,11 @@ class ProfileViewModel @Inject constructor(
     fun refresh() {
         viewModelScope.launch {
             if (secureStore.isWebSessionActive) favoritesRepository.syncFromRemote(maxPages = 1)
-            if (!secureStore.isTokenSet) {
+            val hasToken = secureStore.isTokenSet
+            val sessionUsername = secureStore.sessionUsername?.takeIf(String::isNotBlank)
+            if (!hasToken && sessionUsername == null) {
                 _uiState.value = _uiState.value.copy(
-                    isTokenSet = false,
+                    isConnected = false,
                     member = null,
                     recentTopics = emptyList(),
                     isLoading = false,
@@ -85,13 +88,19 @@ class ProfileViewModel @Inject constructor(
                 return@launch
             }
             _uiState.value = _uiState.value.copy(
-                isTokenSet = true,
+                isConnected = true,
                 isLoading = _uiState.value.member == null,
                 error = null,
             )
             runCatching {
-                val envelope = apiV2.me()
-                envelope.result ?: error(envelope.message ?: "接口没有返回内容")
+                // 有 PAT 就走 API 2.0 的「当前用户」；只有网页会话（cookie）时退回
+                // 公开的 v1 接口按用户名查 —— 网页登录是安卓的主力登录方式，不能因为
+                // 没配 PAT 就把人当访客。
+                when {
+                    hasToken -> apiV2.me().let { it.result ?: error(it.message ?: "接口没有返回内容") }
+                    sessionUsername != null -> apiV1.showMember(sessionUsername)
+                    else -> error("未连接账号")
+                }
             }.onSuccess { member ->
                 _uiState.value = _uiState.value.copy(member = member, isLoading = false)
                 loadRecentTopics(member.username)

@@ -23,6 +23,14 @@ class HomeRepository @Inject constructor(
         if (scraped.size > HOT_API_LIMIT) scraped else apiV1.hotTopics()
     }
 
+    /**
+     * 「R2」。网页端按投票算出来的排序，两版 API 都没有对应接口，只能读网页。
+     * 抓不到就当失败 —— 这一栏没有可退的接口，空列表比一份错的排序诚实。
+     */
+    suspend fun r2Topics(): Result<List<Topic>> = runCatching {
+        webSessionService.r2Topics().ifEmpty { error("R2 页面没有返回话题") }
+    }
+
     suspend fun topicsInNode(nodeName: String): Result<List<Topic>> =
         runCatching { apiV1.topicsInNode(nodeName) }
 

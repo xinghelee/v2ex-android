@@ -41,7 +41,7 @@ fun AccountScreen(onBack: () -> Unit, viewModel: AccountViewModel = hiltViewMode
     if (uiState.showWebLogin) {
         WebLoginScreen(
             onCancel = viewModel::dismissWebLogin,
-            onSuccess = viewModel::onWebLoginSuccess,
+            onConfirm = viewModel::confirmWebLogin,
         )
         return
     }

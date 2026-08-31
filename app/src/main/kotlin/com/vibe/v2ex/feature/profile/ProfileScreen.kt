@@ -113,7 +113,7 @@ fun ProfileScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             when {
-                uiState.isTokenSet && uiState.member != null -> {
+                uiState.isConnected && uiState.member != null -> {
                     MemberHeaderCard(
                         member = uiState.member!!,
                         uiState = uiState,
@@ -122,7 +122,7 @@ fun ProfileScreen(
                         onModerationClick = onModerationClick,
                     )
                 }
-                uiState.isTokenSet && uiState.isLoading -> {
+                uiState.isConnected && uiState.isLoading -> {
                     V2Card {
                         Row(
                             modifier = Modifier.padding(18.dp),
@@ -134,7 +134,7 @@ fun ProfileScreen(
                         }
                     }
                 }
-                uiState.isTokenSet -> {
+                uiState.isConnected -> {
                     V2Card {
                         Text(
                             text = uiState.error?.let { "资料加载失败：$it" } ?: "资料加载失败，下拉或重进本页重试",
@@ -379,7 +379,7 @@ private fun NotConnectedCard(onLoginClick: () -> Unit) {
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = "前往 账号 设置 Personal Access Token 后查看资料。登录后可查看通知、个人资料、我的话题，并在 app 内直接回复、收藏。",
+                text = "前往 账号 登录网页会话，或设置 Personal Access Token。连接后可查看个人资料、我的话题与通知，并在 app 内直接回复、收藏。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),

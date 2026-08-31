@@ -141,7 +141,11 @@ fun HomeScreen(
                 isLoading = feed.key in uiState.loadingFeeds,
                 error = uiState.errorsByFeed[feed.key],
                 cachedAt = uiState.cachedAtByFeed[feed.key],
-                featuredBadge = if (feed == HomeFeed.Hot) "今日最热" else "最新活跃",
+                featuredBadge = when (feed) {
+                    HomeFeed.Hot -> "今日最热"
+                    HomeFeed.R2 -> "R2 排序"
+                    else -> "最新活跃"
+                },
                 readIds = if (uiState.dimReadTopics) uiState.readIds else emptySet(),
                 offlineIds = uiState.offlineIds,
                 showCommunityPulse = feed == HomeFeed.All && uiState.communityPulseEnabled,
