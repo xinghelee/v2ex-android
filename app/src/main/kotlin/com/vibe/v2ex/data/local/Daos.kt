@@ -37,6 +37,18 @@ interface OfflineTopicDao {
 }
 
 @Dao
+interface FeedCacheDao {
+    @Query("SELECT * FROM feed_cache WHERE feedKey = :feedKey")
+    suspend fun get(feedKey: String): FeedCacheEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: FeedCacheEntity)
+
+    @Query("DELETE FROM feed_cache")
+    suspend fun clear()
+}
+
+@Dao
 interface DraftDao {
     @Query("SELECT * FROM drafts ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<DraftEntity>>

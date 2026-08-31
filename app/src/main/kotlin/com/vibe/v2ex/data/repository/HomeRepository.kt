@@ -2,16 +2,26 @@ package com.vibe.v2ex.data.repository
 
 import com.vibe.v2ex.data.model.Topic
 import com.vibe.v2ex.data.remote.V2exApiV1
+import com.vibe.v2ex.data.remote.WebSessionService
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class HomeRepository @Inject constructor(
     private val apiV1: V2exApiV1,
+    private val webSessionService: WebSessionService,
 ) {
     suspend fun latestTopics(): Result<List<Topic>> = runCatching { apiV1.latestTopics() }
 
-    suspend fun hotTopics(): Result<List<Topic>> = runCatching { apiV1.hotTopics() }
+    /**
+     * 「最热」。`/api/topics/hot.json` 服务端硬性只返回 10 条且没有分页参数，网页版
+     * `?tab=hot` 同一时刻有 30+ 条。所以优先抓网页，解析结果确实比 API 上限多才采用；
+     * 网页改版把解析打残时静默退回 API —— 最热永远不会是空的。
+     */
+    suspend fun hotTopics(): Result<List<Topic>> = runCatching {
+        val scraped = runCatching { webSessionService.hotTopics() }.getOrDefault(emptyList())
+        if (scraped.size > HOT_API_LIMIT) scraped else apiV1.hotTopics()
+    }
 
     suspend fun topicsInNode(nodeName: String): Result<List<Topic>> =
         runCatching { apiV1.topicsInNode(nodeName) }
@@ -36,5 +46,8 @@ class HomeRepository @Inject constructor(
 
     private companion object {
         const val MAX_FOLLOWING_NODES = 6
+
+        /** `/api/topics/hot.json` 的服务端返回上限。 */
+        const val HOT_API_LIMIT = 10
     }
 }

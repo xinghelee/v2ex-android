@@ -16,6 +16,18 @@ data class OfflineTopicEntity(
     val automatic: Boolean = false,
 )
 
+/**
+ * 首页/节点列表的最后一次快照。没有它，飞机上冷启动只能看到「加载失败」——
+ * 话题正文早就离线好了，却没有入口能点进去。
+ */
+@Entity(tableName = "feed_cache")
+data class FeedCacheEntity(
+    /** 与 HomeFeed.key 一致："all" / "hot" / "following" / "node:<name>"。 */
+    @PrimaryKey val feedKey: String,
+    val topicsJson: String,
+    val updatedAt: Long,
+)
+
 @Entity(tableName = "drafts")
 data class DraftEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

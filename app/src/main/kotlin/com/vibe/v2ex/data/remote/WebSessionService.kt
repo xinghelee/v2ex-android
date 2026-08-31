@@ -1,6 +1,9 @@
 package com.vibe.v2ex.data.remote
 
 import com.vibe.v2ex.data.datastore.SecureStore
+import com.vibe.v2ex.data.model.Member
+import com.vibe.v2ex.data.model.Node
+import com.vibe.v2ex.data.model.Topic
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -9,6 +12,10 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -110,6 +117,65 @@ class WebSessionService @Inject constructor(
             }
         }
     }
+
+    /**
+     * 网页版「最热」（GET /?tab=hot）。官方 `/api/topics/hot.json` 服务端硬性只返回
+     * 10 条且没有分页参数，网页同一时刻有 30+ 条 —— 用户对着网页看会觉得 App 少了
+     * 一大截。这一页未登录也拿得全，所以不需要会话（mirrors iOS hotTopicsFromWeb）。
+     */
+    suspend fun hotTopics(): List<Topic> = withContext(Dispatchers.IO) {
+        parseTopicRows(fetchDocument("$BASE/?tab=hot"))
+    }
+
+    /**
+     * 解析首页/节点页的话题行。一行的结构：
+     * ```
+     * <div class="cell item"><table><tr>
+     *   <td><a href="/member/foo"><img class="avatar" src="…_normal.png"></a></td>
+     *   <td><span class="item_title"><a href="/t/123#reply22" class="topic-link">标题</a></span>
+     *     <span class="topic_info"><a class="node" href="/go/career">职场话题</a> •
+     *       <strong><a href="/member/foo">foo</a></strong> •
+     *       <span title="2026-08-31 11:30:18 +08:00">6 mins ago</span> •
+     *       Lastly replied by <strong><a href="/member/bar">bar</a></strong></span></td>
+     *   <td><a class="count_livid">22</a></td>
+     * </tr></table></div>
+     * ```
+     * 作者和「最后回复者」用的是同一种 `<strong><a href="/member/…">` 标记，只有按
+     * 文档顺序取第一个才不会认错人。时间取 `title` 里的绝对时间戳而不是「6 mins ago」
+     * 文案 —— 后者随登录语言在中英文之间切换，解析出来也只是个近似值。
+     * 正文网页列表不提供，[Topic.content] 留空，只影响首页大卡片的摘要行。
+     */
+    private fun parseTopicRows(doc: Document): List<Topic> =
+        doc.select("div.cell.item").mapNotNull { cell ->
+            val link = cell.selectFirst("span.item_title > a.topic-link") ?: return@mapNotNull null
+            val id = TOPIC_ID_REGEX.find(link.attr("href"))?.groupValues?.get(1)?.toLongOrNull()
+                ?: return@mapNotNull null
+            val avatar = cell.selectFirst("img.avatar")?.attr("src")?.takeIf(String::isNotBlank)
+            val author = cell.selectFirst("strong > a[href^=/member/]")?.text().orEmpty()
+            Topic(
+                id = id,
+                title = link.text(),
+                url = "$BASE/t/$id",
+                replies = cell.selectFirst("a[class^=count_]")?.text()?.toIntOrNull() ?: 0,
+                lastTouched = cell.select("span[title]").firstNotNullOfOrNull { absoluteTime(it) },
+                node = cell.selectFirst("a.node")?.let { node ->
+                    Node(name = node.attr("href").substringAfterLast('/'), title = node.text())
+                },
+                member = author.takeIf(String::isNotEmpty)?.let {
+                    Member(username = it, avatarNormal = avatar, avatarLarge = upscaledAvatar(avatar))
+                },
+            )
+        }.distinctBy { it.id }
+
+    /** `title="2026-08-31 11:30:18 +08:00"` → 秒级时间戳；认不出返回 null，行上不显示时间而不是显示一个错的。 */
+    private fun absoluteTime(span: Element): Long? = runCatching {
+        OffsetDateTime.parse(span.attr("title").trim(), WEB_TIME_FORMAT).toEpochSecond()
+    }.getOrNull()
+
+    /** 列表 HTML 给的是 48px 小头像，行内 34dp 方块在 3× 屏上要 ~100px 才不糊。 */
+    private fun upscaledAvatar(url: String?): String? = url
+        ?.replace("_normal.", "_large.")
+        ?.replace(GRAVATAR_SIZE_REGEX, "$1" + "73")
 
     /**
      * 网页收藏列表：GET /my/topics 分页拉全（每页 20 条，最多 [maxPages] 页）。
@@ -292,5 +358,12 @@ class WebSessionService @Inject constructor(
     fun signOutWebSession() {
         cookieJar.clear()
         secureStore.clearWebSession()
+    }
+
+    private companion object {
+        val TOPIC_ID_REGEX = Regex("""/t/(\d+)""")
+        val GRAVATAR_SIZE_REGEX = Regex("""([?&]s=)\d+""")
+        val WEB_TIME_FORMAT: DateTimeFormatter =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss XXX", Locale.US)
     }
 }

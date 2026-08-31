@@ -1,22 +1,31 @@
 package com.vibe.v2ex.feature.settings
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import coil3.SingletonImageLoader
 import com.vibe.v2ex.data.datastore.AppTheme
 import com.vibe.v2ex.data.datastore.DarkModePreference
+import com.vibe.v2ex.data.datastore.FollowedNodesStore
 import com.vibe.v2ex.data.datastore.LineSpacingPreference
 import com.vibe.v2ex.data.datastore.MonoFontPreference
 import com.vibe.v2ex.data.datastore.SecureStore
 import com.vibe.v2ex.data.datastore.SettingsDataStore
+import com.vibe.v2ex.data.repository.AutoOfflineCoordinator
+import com.vibe.v2ex.data.repository.FeedCacheRepository
 import com.vibe.v2ex.data.repository.OfflineRepository
+import com.vibe.v2ex.data.repository.OfflineSyncProgress
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class SettingsUiState(
@@ -31,8 +40,13 @@ data class SettingsUiState(
     val autoOfflineFollowedNodes: Boolean = true,
     val offlineOnWifiOnly: Boolean = true,
     val communityPulseEnabled: Boolean = true,
-    /** 离线缓存占用（JSON 字节近似值），供「清空缓存」行展示。 */
-    val cacheByteSize: Int = 0,
+    /** 离线缓存占用：正文快照（JSON 字节近似值）+ 图片磁盘缓存，供「清空缓存」行展示。 */
+    val cacheByteSize: Long = 0,
+    /** 已离线的话题数，「立即缓存」行的副标题。 */
+    val offlineTopicCount: Int = 0,
+    /** 非空 = 正在下载离线内容。 */
+    val offlineProgress: OfflineSyncProgress? = null,
+    val offlineMessage: String? = null,
     val isWebSessionActive: Boolean = false,
     val sessionUsername: String? = null,
     val isTokenSet: Boolean = false,
@@ -41,8 +55,12 @@ data class SettingsUiState(
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val settingsDataStore: SettingsDataStore,
     private val offlineRepository: OfflineRepository,
+    private val feedCacheRepository: FeedCacheRepository,
+    private val autoOfflineCoordinator: AutoOfflineCoordinator,
+    private val followedNodesStore: FollowedNodesStore,
     private val secureStore: SecureStore,
 ) : ViewModel() {
     private data class Appearance(
@@ -59,6 +77,13 @@ class SettingsViewModel @Inject constructor(
         val autoSync: Boolean,
         val autoOffline: Boolean,
         val wifiOnly: Boolean,
+    )
+
+    private data class Offline(
+        val topicBytes: Long,
+        val topicCount: Int,
+        val progress: OfflineSyncProgress?,
+        val message: String?,
     )
 
     private val appearance = combine(
@@ -81,15 +106,28 @@ class SettingsViewModel @Inject constructor(
         Reading(dim, remember, autoSync, autoOffline, wifiOnly)
     }
 
+    private val offline = combine(
+        offlineRepository.observeAll(),
+        autoOfflineCoordinator.progress,
+        autoOfflineCoordinator.result,
+    ) { bundles, progress, message ->
+        Offline(
+            topicBytes = bundles.sumOf { it.byteSize.toLong() },
+            topicCount = bundles.size,
+            progress = progress,
+            message = message,
+        )
+    }
+
     private val refreshSession = MutableStateFlow(0)
 
     val uiState: StateFlow<SettingsUiState> = combine(
         appearance,
         reading,
-        offlineRepository.observeAll().map { bundles -> bundles.sumOf { it.byteSize } },
+        offline,
         settingsDataStore.communityPulseEnabled,
         refreshSession,
-    ) { appearance, reading, cacheBytes, communityPulseEnabled, _ ->
+    ) { appearance, reading, offline, communityPulseEnabled, _ ->
         SettingsUiState(
             theme = appearance.theme,
             darkMode = appearance.darkMode,
@@ -102,7 +140,10 @@ class SettingsViewModel @Inject constructor(
             autoOfflineFollowedNodes = reading.autoOffline,
             offlineOnWifiOnly = reading.wifiOnly,
             communityPulseEnabled = communityPulseEnabled,
-            cacheByteSize = cacheBytes,
+            cacheByteSize = offline.topicBytes + imageCacheBytes(),
+            offlineTopicCount = offline.topicCount,
+            offlineProgress = offline.progress,
+            offlineMessage = offline.message,
             isWebSessionActive = secureStore.isWebSessionActive,
             sessionUsername = secureStore.sessionUsername,
             isTokenSet = secureStore.isTokenSet,
@@ -132,7 +173,29 @@ class SettingsViewModel @Inject constructor(
     fun setCommunityPulseEnabled(enabled: Boolean) =
         viewModelScope.launch { settingsDataStore.setCommunityPulseEnabled(enabled) }
 
-    fun clearCache() = viewModelScope.launch { offlineRepository.clear() }
+    /** 登机前手动把最新话题连回复下载下来；下载本身跑在协调器里，离开本页也不会中断。 */
+    fun prefetchOffline() {
+        viewModelScope.launch {
+            autoOfflineCoordinator.prefetchNow(followedNodesStore.names.first())
+        }
+    }
+
+    fun consumeOfflineMessage() = autoOfflineCoordinator.consumeResult()
+
+    fun clearCache() = viewModelScope.launch {
+        offlineRepository.clear()
+        feedCacheRepository.clear()
+        withContext(Dispatchers.IO) {
+            SingletonImageLoader.get(context).apply {
+                memoryCache?.clear()
+                diskCache?.clear()
+            }
+        }
+        refreshSession.value++
+    }
+
+    private fun imageCacheBytes(): Long =
+        runCatching { SingletonImageLoader.get(context).diskCache?.size ?: 0L }.getOrDefault(0L)
 
     fun saveDeepSeekApiKey(key: String) {
         secureStore.deepSeekApiKey = key

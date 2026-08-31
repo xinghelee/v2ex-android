@@ -165,7 +165,9 @@ class TopicViewModel @Inject constructor(
         viewModelScope.launch {
             val cached = offlineRepository.bundle(topicId)
             if (cached != null && _uiState.value.topic == null) {
-                applyDetail(cached.topic, cached.replies, loadedFromOffline = !cached.automatic)
+                // 快照先上屏，刷新成功后再落回 false —— 网络失败时这个标记留着，
+                // 顶部提示会告诉用户「看的是离线内容」。
+                applyDetail(cached.topic, cached.replies, loadedFromOffline = true)
             }
             refresh()
         }
@@ -188,10 +190,9 @@ class TopicViewModel @Inject constructor(
                     )
                     _uiState.update { it.copy(isLoading = false) }
                     historyRepository.record(detail.topic)
-                    // 已离线的话题顺手把快照刷新到最新（保持原 manual/automatic 身份）。
-                    offlineRepository.bundle(topicId)?.let { saved ->
-                        offlineRepository.save(detail.topic, rawReplies, automatic = saved.automatic)
-                    }
+                    // 打开过就缓存下来 —— 「上飞机前刷一遍首页」靠的就是这条，
+                    // 手动保存过的条目由 OfflineRepository.save 保住 manual 身份。
+                    offlineRepository.save(detail.topic, rawReplies, automatic = true)
                     restoreReadingPosition()
                     syncFavoriteState()
                 }

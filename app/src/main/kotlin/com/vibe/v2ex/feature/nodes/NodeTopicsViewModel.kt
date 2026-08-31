@@ -11,6 +11,7 @@ import com.vibe.v2ex.data.model.Topic
 import com.vibe.v2ex.data.nodes.NodeCatalog
 import com.vibe.v2ex.data.remote.V2exApiV1
 import com.vibe.v2ex.data.remote.V2exApiV2
+import com.vibe.v2ex.data.repository.FeedCacheRepository
 import com.vibe.v2ex.data.repository.NodesRepository
 import com.vibe.v2ex.navigation.Route
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -41,6 +42,8 @@ data class NodeTopicsUiState(
     val isLoadingMore: Boolean = false,
     val reachedEnd: Boolean = false,
     val isFollowed: Boolean = false,
+    /** 非空 = 当前列表来自本地快照（断网），值是快照时间。 */
+    val cachedAt: Long? = null,
     val readIds: Set<Long> = emptySet(),
     val dimReadTopics: Boolean = false,
     val error: String? = null,
@@ -62,6 +65,7 @@ class NodeTopicsViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val apiV1: V2exApiV1,
     private val apiV2: V2exApiV2,
+    private val feedCacheRepository: FeedCacheRepository,
     private val followedNodesStore: FollowedNodesStore,
     private val nodesRepository: NodesRepository,
     readStateStore: ReadStateStore,
@@ -73,6 +77,9 @@ class NodeTopicsViewModel @Inject constructor(
         NodeTopicsUiState(nodeName = nodeName, nodeTitle = NodeCatalog.displayName(nodeName)),
     )
     val uiState: StateFlow<NodeTopicsUiState> = _uiState.asStateFlow()
+
+    /** 与 HomeFeed.Node.key 同格式 —— 首页节点 chip 与本页共用同一份快照。 */
+    private val feedKey = "node:$nodeName"
 
     private var page = 1
 
@@ -115,6 +122,19 @@ class NodeTopicsViewModel @Inject constructor(
         if (_uiState.value.isLoading) return
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
+            // 断网时先把上次的快照放出来，列表里的帖子正文多半也已经离线了。
+            if (_uiState.value.raw.isEmpty()) {
+                feedCacheRepository.load(feedKey)?.let { cached ->
+                    _uiState.update { state ->
+                        if (state.raw.isEmpty()) {
+                            state.copy(raw = cached.topics, cachedAt = cached.updatedAt)
+                        } else {
+                            state
+                        }
+                    }
+                }
+            }
+
             // v2 分页接口需要 PAT；失败时退回 v1 的单批不分页结果
             val v2 = runCatching { fetchPageV2(1) }
             val result = v2.recoverCatching { apiV1.topicsInNode(nodeName) }
@@ -122,10 +142,12 @@ class NodeTopicsViewModel @Inject constructor(
                 .onSuccess { topics ->
                     usingV1Fallback = v2.isFailure
                     page = 1
+                    feedCacheRepository.save(feedKey, topics)
                     _uiState.update { state ->
                         state.copy(
                             raw = topics,
                             isLoading = false,
+                            cachedAt = null,
                             reachedEnd = usingV1Fallback || topics.isEmpty(),
                             nodeTitle = topics.firstOrNull()?.node?.title
                                 ?.takeIf(String::isNotBlank) ?: state.nodeTitle,
@@ -133,7 +155,13 @@ class NodeTopicsViewModel @Inject constructor(
                     }
                 }
                 .onFailure { error ->
-                    _uiState.update { it.copy(isLoading = false, error = error.message ?: "加载失败") }
+                    _uiState.update {
+                        // 有快照就继续显示快照 + 顶部离线提示，不要退回整页报错。
+                        it.copy(
+                            isLoading = false,
+                            error = if (it.raw.isEmpty()) error.message ?: "加载失败" else null,
+                        )
+                    }
                 }
         }
     }

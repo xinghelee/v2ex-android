@@ -7,6 +7,7 @@ import com.vibe.v2ex.data.datastore.ReadStateStore
 import com.vibe.v2ex.data.datastore.SettingsDataStore
 import com.vibe.v2ex.data.model.Topic
 import com.vibe.v2ex.data.nodes.NodeCatalog
+import com.vibe.v2ex.data.repository.FeedCacheRepository
 import com.vibe.v2ex.data.repository.HomeRepository
 import com.vibe.v2ex.data.repository.NodesRepository
 import com.vibe.v2ex.data.repository.OfflineRepository
@@ -50,6 +51,8 @@ data class HomeUiState(
     val topicsByFeed: Map<String, List<Topic>> = emptyMap(),
     val loadingFeeds: Set<String> = emptySet(),
     val errorsByFeed: Map<String, String> = emptyMap(),
+    /** 该 feed 当前展示的是本地快照（断网 / 还没刷新成功），值是快照时间。 */
+    val cachedAtByFeed: Map<String, Long> = emptyMap(),
     /** 已读话题（配合 dimReadTopics 置灰）+ 已离线话题（行尾徽章）。 */
     val readIds: Set<Long> = emptySet(),
     val dimReadTopics: Boolean = false,
@@ -62,6 +65,7 @@ data class HomeUiState(
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: HomeRepository,
+    private val feedCacheRepository: FeedCacheRepository,
     private val nodesRepository: NodesRepository,
     private val followedNodesStore: FollowedNodesStore,
     readStateStore: ReadStateStore,
@@ -132,34 +136,61 @@ class HomeViewModel @Inject constructor(
             it.copy(loadingFeeds = it.loadingFeeds + feed.key, errorsByFeed = it.errorsByFeed - feed.key)
         }
         viewModelScope.launch {
+            // 断网冷启动时先把上次的快照放出来 —— 正文早已离线，缺的只是能点进去的列表。
+            hydrateFromCache(feed)
+
             val result = when (feed) {
                 HomeFeed.All -> repository.latestTopics()
                 HomeFeed.Hot -> repository.hotTopics()
                 HomeFeed.Following -> repository.followingTopics(followedNames)
                 is HomeFeed.Node -> repository.topicsInNode(feed.name)
             }
+            val fresh = result.getOrNull()?.filterNot(::isPromotion)
+            // 快照先落盘：即便用户已经切走、结果要被丢弃，下次断网也用得上。
+            if (fresh != null) feedCacheRepository.save(feed.key, fresh)
+
             // 用户已切走该 feed 时丢弃过期的在途结果，避免旧响应覆盖当前页
             if (_uiState.value.currentFeed.key != feed.key) {
                 _uiState.update { it.copy(loadingFeeds = it.loadingFeeds - feed.key) }
                 return@launch
             }
-            result
-                .onSuccess { topics ->
-                    _uiState.update {
-                        it.copy(
-                            topicsByFeed = it.topicsByFeed + (feed.key to topics.filterNot(::isPromotion)),
-                            loadingFeeds = it.loadingFeeds - feed.key,
-                        )
-                    }
+            if (fresh != null) {
+                _uiState.update {
+                    it.copy(
+                        topicsByFeed = it.topicsByFeed + (feed.key to fresh),
+                        loadingFeeds = it.loadingFeeds - feed.key,
+                        cachedAtByFeed = it.cachedAtByFeed - feed.key,
+                    )
                 }
-                .onFailure { error ->
-                    _uiState.update {
-                        it.copy(
-                            loadingFeeds = it.loadingFeeds - feed.key,
-                            errorsByFeed = it.errorsByFeed + (feed.key to (error.message ?: "加载失败")),
-                        )
-                    }
+            } else {
+                val message = result.exceptionOrNull()?.message ?: "加载失败"
+                _uiState.update {
+                    it.copy(
+                        loadingFeeds = it.loadingFeeds - feed.key,
+                        // 有快照就继续显示快照 + 顶部离线提示，不要退回整页报错。
+                        errorsByFeed = if (feed.key in it.topicsByFeed) {
+                            it.errorsByFeed
+                        } else {
+                            it.errorsByFeed + (feed.key to message)
+                        },
+                    )
                 }
+            }
+        }
+    }
+
+    private suspend fun hydrateFromCache(feed: HomeFeed) {
+        if (feed.key in _uiState.value.topicsByFeed) return
+        val cached = feedCacheRepository.load(feed.key) ?: return
+        _uiState.update { state ->
+            if (feed.key in state.topicsByFeed) {
+                state
+            } else {
+                state.copy(
+                    topicsByFeed = state.topicsByFeed + (feed.key to cached.topics),
+                    cachedAtByFeed = state.cachedAtByFeed + (feed.key to cached.updatedAt),
+                )
+            }
         }
     }
 

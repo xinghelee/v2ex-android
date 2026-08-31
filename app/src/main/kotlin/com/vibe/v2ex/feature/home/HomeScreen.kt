@@ -53,6 +53,7 @@ import com.vibe.v2ex.designsystem.FeaturedTopicCard
 import com.vibe.v2ex.designsystem.GlassCircleButton
 import com.vibe.v2ex.designsystem.LocalV2Dark
 import com.vibe.v2ex.designsystem.OfflineBadge
+import com.vibe.v2ex.designsystem.OfflineNoticeBar
 import com.vibe.v2ex.designsystem.PromotionBadge
 import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.cardGroupPosition
@@ -139,6 +140,7 @@ fun HomeScreen(
                 topics = uiState.topicsByFeed[feed.key],
                 isLoading = feed.key in uiState.loadingFeeds,
                 error = uiState.errorsByFeed[feed.key],
+                cachedAt = uiState.cachedAtByFeed[feed.key],
                 featuredBadge = if (feed == HomeFeed.Hot) "今日最热" else "最新活跃",
                 readIds = if (uiState.dimReadTopics) uiState.readIds else emptySet(),
                 offlineIds = uiState.offlineIds,
@@ -200,6 +202,8 @@ private fun FeedPage(
     topics: List<Topic>?,
     isLoading: Boolean,
     error: String?,
+    /** 非空 = 列表来自本地快照，值是快照时间（毫秒）。 */
+    cachedAt: Long?,
     featuredBadge: String,
     readIds: Set<Long> = emptySet(),
     offlineIds: Set<Long> = emptySet(),
@@ -260,6 +264,11 @@ private fun FeedPage(
                         bottom = TAB_BAR_CLEARANCE,
                     ),
                 ) {
+                    if (cachedAt != null) {
+                        item(key = "offline-banner") {
+                            OfflineNoticeBar(Modifier.padding(bottom = 10.dp), cachedAt = cachedAt)
+                        }
+                    }
                     if (showCommunityPulse) {
                         item(key = "community-pulse") {
                             CommunityPulseCard(

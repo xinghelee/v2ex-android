@@ -51,6 +51,7 @@ import com.vibe.v2ex.designsystem.Avatar
 import com.vibe.v2ex.designsystem.CardGroupItem
 import com.vibe.v2ex.designsystem.GlassCircleButton
 import com.vibe.v2ex.designsystem.LocalV2Dark
+import com.vibe.v2ex.designsystem.OfflineNoticeBar
 import com.vibe.v2ex.designsystem.ReplyCount
 import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.V2Colors
@@ -150,6 +151,11 @@ fun NodeTopicsScreen(
                         onSelect = viewModel::setSort,
                         modifier = Modifier.padding(bottom = 12.dp),
                     )
+                }
+                uiState.cachedAt?.let { cachedAt ->
+                    item(key = "offline-banner") {
+                        OfflineNoticeBar(Modifier.padding(bottom = 10.dp), cachedAt = cachedAt)
+                    }
                 }
                 when {
                     uiState.raw.isEmpty() && uiState.isLoading -> {

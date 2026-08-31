@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -55,11 +56,13 @@ import com.vibe.v2ex.data.datastore.AppTheme
 import com.vibe.v2ex.data.datastore.DarkModePreference
 import com.vibe.v2ex.data.datastore.LineSpacingPreference
 import com.vibe.v2ex.data.datastore.MonoFontPreference
+import com.vibe.v2ex.data.repository.OfflineSyncProgress
 import com.vibe.v2ex.designsystem.SectionHeader
 import com.vibe.v2ex.designsystem.SecureCredentialField
 import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.V2Colors
 import com.vibe.v2ex.designsystem.paletteFor
+import kotlinx.coroutines.delay
 
 private val LINE_SPACING_LABELS = mapOf(
     LineSpacingPreference.TIGHT to "紧凑",
@@ -85,6 +88,14 @@ fun SettingsScreen(
 
     // 从「账号」页返回后刷新登录状态展示。
     LaunchedEffect(Unit) { viewModel.refreshSessionState() }
+
+    // 下载结果只是一句一次性反馈，几秒后退回常驻副标题。
+    LaunchedEffect(uiState.offlineMessage) {
+        if (uiState.offlineMessage != null) {
+            delay(4_000)
+            viewModel.consumeOfflineMessage()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -219,6 +230,13 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(16.dp))
         SectionHeader("离线与缓存")
         V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+            OfflinePrefetchRow(
+                progress = uiState.offlineProgress,
+                message = uiState.offlineMessage,
+                topicCount = uiState.offlineTopicCount,
+                onClick = viewModel::prefetchOffline,
+            )
+            InsetDivider()
             SwitchRow(
                 label = "自动离线关注节点",
                 subtitle = if (uiState.offlineOnWifiOnly) "仅 Wi-Fi 下载" else "使用任意网络下载",
@@ -346,9 +364,9 @@ private fun appVersionName(context: android.content.Context): String = runCatchi
     context.packageManager.getPackageInfo(context.packageName, 0).versionName
 }.getOrNull() ?: ""
 
-private fun formatCacheSize(bytes: Int): String = when {
-    bytes >= 1 shl 20 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1048576.0)
-    bytes >= 1 shl 10 -> String.format(java.util.Locale.US, "%.0f KB", bytes / 1024.0)
+private fun formatCacheSize(bytes: Long): String = when {
+    bytes >= 1L shl 20 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1048576.0)
+    bytes >= 1L shl 10 -> String.format(java.util.Locale.US, "%.0f KB", bytes / 1024.0)
     else -> "$bytes B"
 }
 
@@ -565,6 +583,51 @@ private fun ValueRow(
         )
         if (showChevron) {
             Spacer(modifier = Modifier.width(6.dp))
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+/** 「立即缓存最新话题」：登机前一键把正文和回复拉到本地。 */
+@Composable
+private fun OfflinePrefetchRow(
+    progress: OfflineSyncProgress?,
+    message: String?,
+    topicCount: Int,
+    onClick: () -> Unit,
+) {
+    val subtitle = when {
+        progress != null -> "正在下载 ${progress.completed}/${progress.total}"
+        message != null -> message
+        topicCount > 0 -> "已离线 $topicCount 篇，飞行模式下可直接阅读"
+        else -> "把最新话题连回复存到本机，断网也能看"
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = progress == null, onClick = onClick)
+            .heightIn(min = 52.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = "立即缓存最新话题", style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Normal,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 1.dp),
+            )
+        }
+        if (progress != null) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+        } else {
             Icon(
                 Icons.Filled.ChevronRight,
                 contentDescription = null,

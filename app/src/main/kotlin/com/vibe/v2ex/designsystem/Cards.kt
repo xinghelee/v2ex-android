@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.vibe.v2ex.data.model.Topic
@@ -309,6 +310,30 @@ fun OfflineBadge(modifier: Modifier = Modifier) {
             .clip(RoundedCornerShape(6.dp))
             .background(MaterialTheme.colorScheme.tertiaryContainer)
             .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}
+
+/**
+ * 「你看到的是本地快照」提示条。断网时列表和正文照样在，但回复数、楼层都是旧的 —
+ * 不说清楚就会被当成 bug 报上来。[cachedAt] 是毫秒时间戳，null 表示不显示时间。
+ */
+@Composable
+fun OfflineNoticeBar(
+    modifier: Modifier = Modifier,
+    cachedAt: Long? = null,
+    hint: String = "下拉刷新可更新",
+) {
+    val stamp = cachedAt?.let { relativeTimeText(it / 1000) }.orEmpty()
+    Text(
+        text = if (stamp.isBlank()) "离线内容 · $hint" else "离线内容 · 更新于 $stamp",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+            .padding(vertical = 7.dp),
     )
 }
 

@@ -6,6 +6,7 @@ import com.vibe.v2ex.data.local.AppDatabase
 import com.vibe.v2ex.data.local.BlockListDao
 import com.vibe.v2ex.data.local.DraftDao
 import com.vibe.v2ex.data.local.FavoriteTopicDao
+import com.vibe.v2ex.data.local.FeedCacheDao
 import com.vibe.v2ex.data.local.HistoryDao
 import com.vibe.v2ex.data.local.ModerationVisibilityDao
 import com.vibe.v2ex.data.local.OfflineTopicDao
@@ -24,10 +25,15 @@ object StorageModule {
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
-        Room.databaseBuilder(context, AppDatabase::class.java, "v2ex.db").build()
+        Room.databaseBuilder(context, AppDatabase::class.java, "v2ex.db")
+            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .build()
 
     @Provides
     fun provideOfflineTopicDao(db: AppDatabase): OfflineTopicDao = db.offlineTopicDao()
+
+    @Provides
+    fun provideFeedCacheDao(db: AppDatabase): FeedCacheDao = db.feedCacheDao()
 
     @Provides
     fun provideDraftDao(db: AppDatabase): DraftDao = db.draftDao()

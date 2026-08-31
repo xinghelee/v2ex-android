@@ -89,6 +89,7 @@ import com.vibe.v2ex.designsystem.ContentBlock
 import com.vibe.v2ex.designsystem.ContentBlocksView
 import com.vibe.v2ex.designsystem.LocalV2Dark
 import com.vibe.v2ex.designsystem.OfflineBadge
+import com.vibe.v2ex.designsystem.OfflineNoticeBar
 import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.V2Colors
 import com.vibe.v2ex.designsystem.cardGroupPosition
@@ -217,6 +218,13 @@ fun TopicScreen(
                     context.startActivity(Intent(Intent.ACTION_VIEW, topic.webUrl.toUri()))
                 },
             )
+
+            if (uiState.loadedFromOffline && uiState.topic != null) {
+                OfflineNoticeBar(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    hint = "连网后重新进入可更新",
+                )
+            }
 
             val topic = uiState.topic
             val error = uiState.error

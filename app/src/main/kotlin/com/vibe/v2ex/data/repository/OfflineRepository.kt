@@ -78,6 +78,7 @@ class OfflineRepository @Inject constructor(
 
     private companion object {
         val RepliesSerializer = kotlinx.serialization.builtins.ListSerializer(Reply.serializer())
-        const val MAX_AUTOMATIC = 50
+        /** 自动缓存全是文本 JSON，放宽到能装下一次通勤/一趟航班的阅读量。 */
+        const val MAX_AUTOMATIC = 150
     }
 }
