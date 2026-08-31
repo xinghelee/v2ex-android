@@ -10,6 +10,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import com.vibe.v2ex.data.datastore.AppTheme
 import com.vibe.v2ex.data.datastore.DarkModePreference
+import com.vibe.v2ex.data.datastore.LineSpacingPreference
+import com.vibe.v2ex.data.datastore.MonoFontPreference
 
 /**
  * 可选主题色（mirrors iOS ThemePalette）：中性的纸墨底色共享，每套配色拥有
@@ -28,7 +30,7 @@ data class V2Palette(
 fun paletteFor(theme: AppTheme): V2Palette = when (theme) {
     AppTheme.EMERALD -> V2Palette(
         title = "翡翠绿",
-        accentLight = Color(0xFF1C7C6B), accentDark = Color(0xFF2A9C87), accentDeep = Color(0xFF14584D),
+        accentLight = Color(0xFF00734C), accentDark = Color(0xFF2FBF8F), accentDeep = Color(0xFF00543A),
         secondaryLight = Color(0xFFA85C00), secondaryDark = Color(0xFFE8A33C),
         canvasLight = Color(0xFFF2F2F7),
     )
@@ -65,27 +67,30 @@ fun paletteFor(theme: AppTheme): V2Palette = when (theme) {
  * 单一品牌配色，浅/深两个模式（设计稿 09 屏只提供 浅色/深色/跟随系统）。
  */
 object V2Colors {
-    val AccentLight = Color(0xFF1C7C6B)
-    val AccentDark = Color(0xFF2A9C87)
-    val AccentDeep = Color(0xFF14584D)
+    // Mirrors the current iOS Theme.swift values. Keep these aliases for
+    // non-composable renderers (for example the share-card canvas); Compose UI
+    // should prefer MaterialTheme.colorScheme so the selected palette wins.
+    val AccentLight = Color(0xFF00734C)
+    val AccentDark = Color(0xFF2FBF8F)
+    val AccentDeep = Color(0xFF00543A)
 
     val CanvasLight = Color(0xFFF2F2F7)
-    val CanvasDark = Color(0xFF000000)
+    val CanvasDark = Color(0xFF0A0A0B)
     val CardLight = Color(0xFFFFFFFF)
-    val CardDark = Color(0xFF1C1C1E)
+    val CardDark = Color(0xFF161618)
 
-    val InkLight = Color(0xFF000000)
-    val InkDark = Color(0xFFFFFFFF)
-    val BodyLight = Color(0xFF1C1C1E)
-    val BodyDark = Color(0xFFEBEBF5)
+    val InkLight = Color(0xFF141416)
+    val InkDark = Color(0xFFF2F2F4)
+    val BodyLight = Color(0xFF2C2C2E)
+    val BodyDark = Color(0xFFD1D1D6)
     val SecondaryLabelLight = Color(0xFF3C3C43)
-    val MutedLight = Color(0xFF8E8E93)
-    val MutedDark = Color(0x99EBEBF5) // rgba(235,235,245,0.6)
-    val TertiaryLight = Color(0xFFC7C7CC)
-    val TertiaryDark = Color(0x4DEBEBF5) // rgba(235,235,245,0.3)
+    val MutedLight = Color(0xFF86868B)
+    val MutedDark = Color(0xFF8E8E93)
+    val TertiaryLight = Color(0xFFAEAEB2)
+    val TertiaryDark = Color(0xFF4A4A4F)
 
-    val SeparatorLight = Color(0x1F3C3C43) // rgba(60,60,67,0.12)
-    val SeparatorDark = Color(0xA6545458) // rgba(84,84,88,0.65)
+    val SeparatorLight = Color(0x12141416) // rgba(20,20,22,0.07)
+    val SeparatorDark = Color(0x1AF2F2F4) // rgba(242,242,244,0.10)
 
     /** 离线标记 / 铜币 橙 */
     val Amber = Color(0xFFC77700)
@@ -109,11 +114,24 @@ object V2Colors {
 /** 当前是否深色 — 供需要设计稿精确色值（而非 M3 语义色）的组件使用。 */
 val LocalV2Dark = staticCompositionLocalOf { false }
 
+/** Reader controls are separate from the app chrome typography. They are
+ * consumed by rich topic/reply content so changing the settings has an
+ * immediate, observable effect without making navigation labels jump. */
+data class ReadingTypography(
+    val fontSize: Float = 14f,
+    val lineSpacing: LineSpacingPreference = LineSpacingPreference.RELAXED,
+    val monoFont: MonoFontPreference = MonoFontPreference.SF_MONO,
+)
+
+val LocalReadingTypography = staticCompositionLocalOf { ReadingTypography() }
+
 private fun scheme(dark: Boolean, palette: V2Palette): ColorScheme {
     return if (dark) {
         darkColorScheme(
             primary = palette.accentDark,
-            onPrimary = Color.White,
+            // Dark palettes use bright signal colours; near-black ink keeps
+            // button labels and fallback initials above WCAG contrast targets.
+            onPrimary = V2Colors.CanvasDark,
             primaryContainer = palette.accentDark.copy(alpha = 0.18f).compositeOver(V2Colors.CardDark),
             onPrimaryContainer = palette.accentDark,
             secondary = palette.accentDark,
@@ -124,9 +142,9 @@ private fun scheme(dark: Boolean, palette: V2Palette): ColorScheme {
             onTertiaryContainer = palette.secondaryDark,
             background = V2Colors.CanvasDark,
             surface = V2Colors.CardDark,
-            surfaceVariant = Color(0xFF2C2C2E),
-            surfaceContainer = Color(0xFF232326),
-            surfaceContainerHigh = Color(0xFF2C2C2E),
+            surfaceVariant = Color(0xFF222225),
+            surfaceContainer = Color(0xFF1E1E21),
+            surfaceContainerHigh = Color(0xFF222225),
             onBackground = V2Colors.InkDark,
             onSurface = V2Colors.InkDark,
             onSurfaceVariant = V2Colors.MutedDark,
@@ -149,7 +167,7 @@ private fun scheme(dark: Boolean, palette: V2Palette): ColorScheme {
             background = palette.canvasLight,
             surface = V2Colors.CardLight,
             surfaceVariant = palette.canvasLight,
-            surfaceContainer = Color(0xFFF7F7F9),
+            surfaceContainer = Color(0xFFECECEF),
             surfaceContainerHigh = palette.canvasLight,
             onBackground = V2Colors.InkLight,
             onSurface = V2Colors.InkLight,
@@ -174,6 +192,9 @@ private fun Color.compositeOver(base: Color): Color {
 fun V2exTheme(
     darkModePreference: DarkModePreference = DarkModePreference.SYSTEM,
     appTheme: AppTheme = AppTheme.EMERALD,
+    readingFontSize: Float = 14f,
+    readingLineSpacing: LineSpacingPreference = LineSpacingPreference.RELAXED,
+    readingMonoFont: MonoFontPreference = MonoFontPreference.SF_MONO,
     content: @Composable () -> Unit,
 ) {
     val dark = when (darkModePreference) {
@@ -181,7 +202,14 @@ fun V2exTheme(
         DarkModePreference.LIGHT -> false
         DarkModePreference.DARK -> true
     }
-    androidx.compose.runtime.CompositionLocalProvider(LocalV2Dark provides dark) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalV2Dark provides dark,
+        LocalReadingTypography provides ReadingTypography(
+            fontSize = readingFontSize.coerceIn(13f, 21f),
+            lineSpacing = readingLineSpacing,
+            monoFont = readingMonoFont,
+        ),
+    ) {
         MaterialTheme(
             colorScheme = scheme(dark, paletteFor(appTheme)),
             typography = V2exTypography,

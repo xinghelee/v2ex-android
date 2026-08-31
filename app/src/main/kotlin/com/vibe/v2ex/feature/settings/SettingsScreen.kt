@@ -71,8 +71,8 @@ private val LINE_SPACING_LABELS = mapOf(
 )
 private val MONO_FONT_LABELS = mapOf(
     MonoFontPreference.SF_MONO to "系统等宽",
-    MonoFontPreference.MENLO to "Serif Mono",
-    MonoFontPreference.COURIER to "传统等宽",
+    MonoFontPreference.MENLO to "紧凑等宽",
+    MonoFontPreference.COURIER to "经典宽体",
 )
 
 @Composable
@@ -205,7 +205,7 @@ fun SettingsScreen(
             )
             InsetDivider()
             ValueRow(
-                label = "代码块等宽字体",
+                label = "代码块等宽样式",
                 value = MONO_FONT_LABELS.getValue(uiState.monoFont),
                 onClick = { viewModel.setMonoFont(uiState.monoFont.next()) },
             )

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.vibe.v2ex.data.datastore.FollowedNodesStore
 import com.vibe.v2ex.data.model.Node
 import com.vibe.v2ex.data.nodes.NodeCatalog
+import com.vibe.v2ex.data.nodes.NodeCategory
 import com.vibe.v2ex.data.repository.NodesRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,8 +17,10 @@ import javax.inject.Inject
 
 data class NodesUiState(
     val allNodes: List<Node> = emptyList(),
+    /** Canonical live node lookup. Follow cards and category pages must not invent metadata. */
+    val nodesByName: Map<String, Node> = emptyMap(),
     val titlesByName: Map<String, String> = emptyMap(),
-    /** 节点头像（all.json 的 avatar 字段），关注 chip 和搜索行展示真实图标用。 */
+    /** 节点头像（all.json 的 avatar 字段），列表与关注卡展示真实图标用。 */
     val avatarsByName: Map<String, String> = emptyMap(),
     val query: String = "",
     val followedNames: List<String> = emptyList(),
@@ -43,6 +46,22 @@ data class NodesUiState(
         titlesByName[name]?.takeIf(String::isNotBlank) ?: NodeCatalog.displayName(name)
 
     fun avatarUrl(name: String): String? = avatarsByName[name]
+
+    fun node(name: String): Node? = nodesByName[name]
+
+    /**
+     * Match iOS: use the live directory whenever it has landed; while loading/offline,
+     * preserve the complete built-in category with readable stubs.
+     */
+    fun nodesIn(category: NodeCategory): List<Node> {
+        val names = category.nodeNames.distinct()
+        if (nodesByName.isNotEmpty()) return names.mapNotNull(nodesByName::get)
+        return names.map { name -> Node(name = name, title = displayTitle(name)) }
+    }
+
+    fun countIn(category: NodeCategory): Int =
+        if (nodesByName.isEmpty()) category.nodeNames.distinct().size
+        else category.nodeNames.distinct().count(nodesByName::containsKey)
 }
 
 @HiltViewModel
@@ -68,8 +87,10 @@ class NodesViewModel @Inject constructor(
             repository.allNodes()
                 .onSuccess { nodes ->
                     _uiState.update {
+                        val byName = nodes.associateBy(Node::name)
                         it.copy(
                             allNodes = nodes,
+                            nodesByName = byName,
                             titlesByName = nodes.associate { node -> node.name to node.title },
                             avatarsByName = nodes.mapNotNull { node ->
                                 node.avatarUrl?.let { url -> node.name to url }
@@ -79,7 +100,12 @@ class NodesViewModel @Inject constructor(
                     }
                 }
                 .onFailure { error ->
-                    _uiState.update { it.copy(isLoading = false, error = error.message) }
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = error.message?.takeIf(String::isNotBlank) ?: "节点目录加载失败",
+                        )
+                    }
                 }
         }
     }

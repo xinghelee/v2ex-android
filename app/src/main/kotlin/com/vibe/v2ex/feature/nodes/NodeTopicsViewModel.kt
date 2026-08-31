@@ -8,6 +8,7 @@ import com.vibe.v2ex.data.datastore.FollowedNodesStore
 import com.vibe.v2ex.data.datastore.ReadStateStore
 import com.vibe.v2ex.data.datastore.SettingsDataStore
 import com.vibe.v2ex.data.model.Topic
+import com.vibe.v2ex.data.moderation.ModerationStore
 import com.vibe.v2ex.data.nodes.NodeCatalog
 import com.vibe.v2ex.data.remote.V2exApiV1
 import com.vibe.v2ex.data.remote.V2exApiV2
@@ -18,6 +19,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -34,12 +36,17 @@ data class NodeTopicsUiState(
     val nodeTitle: String = "",
     /** 节点简介（v1 show.json 的 header，HTML）；无则不显示。 */
     val nodeHeader: String? = null,
+    /** Real node artwork from show.json / topic payload; null intentionally uses the accent glyph fallback. */
+    val nodeAvatarUrl: String? = null,
     val topicsCount: Int? = null,
     val starsCount: Int? = null,
     val raw: List<Topic> = emptyList(),
+    /** [raw] filtered through ModerationStore; content rows must only read this collection. */
+    val visibleRaw: List<Topic> = emptyList(),
     val sort: NodeTopicsSort = NodeTopicsSort.LAST_REPLY,
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
+    val loadMoreError: String? = null,
     val reachedEnd: Boolean = false,
     val isFollowed: Boolean = false,
     /** 非空 = 当前列表来自本地快照（断网），值是快照时间。 */
@@ -48,17 +55,26 @@ data class NodeTopicsUiState(
     val dimReadTopics: Boolean = false,
     val error: String? = null,
 ) {
-    val topics: List<Topic>
+    val visibleTopics: List<Topic>
         get() = when (sort) {
-            NodeTopicsSort.LAST_REPLY -> raw.sortedByDescending { it.activityTimestamp }
-            NodeTopicsSort.NEWEST -> raw.sortedByDescending { it.created ?: 0 }
+            NodeTopicsSort.LAST_REPLY -> visibleRaw.sortedByDescending { it.activityTimestamp }
+            NodeTopicsSort.NEWEST -> visibleRaw.sortedByDescending { it.created ?: 0 }
             NodeTopicsSort.WEEKLY_HOT -> {
                 val cutoff = System.currentTimeMillis() / 1000 - 7 * 86_400
-                val recent = raw.filter { it.activityTimestamp >= cutoff }
-                recent.ifEmpty { raw }.sortedByDescending { it.replies }
+                val recent = visibleRaw.filter { it.activityTimestamp >= cutoff }
+                recent.ifEmpty { visibleRaw }.sortedByDescending { it.replies }
             }
         }
+
+    /** Compatibility name used by the screen; it deliberately exposes only moderated content. */
+    val topics: List<Topic> get() = visibleTopics
 }
+
+private data class TopicModerationRules(
+    val hiddenTopicIds: List<Long>,
+    val blockedUsernames: List<String>,
+    val blockedKeywords: List<String>,
+)
 
 @HiltViewModel
 class NodeTopicsViewModel @Inject constructor(
@@ -68,6 +84,7 @@ class NodeTopicsViewModel @Inject constructor(
     private val feedCacheRepository: FeedCacheRepository,
     private val followedNodesStore: FollowedNodesStore,
     private val nodesRepository: NodesRepository,
+    private val moderationStore: ModerationStore,
     readStateStore: ReadStateStore,
     settingsDataStore: SettingsDataStore,
 ) : ViewModel() {
@@ -86,7 +103,22 @@ class NodeTopicsViewModel @Inject constructor(
     /** v1 is a single unpaginated batch, so there is never a "next page" in fallback mode. */
     private var usingV1Fallback = false
 
+    /** Null until all three Room-backed rule streams have emitted, preventing blocked content from flashing. */
+    private var moderationRules: TopicModerationRules? = null
+
     init {
+        viewModelScope.launch {
+            combine(
+                moderationStore.hiddenTopicIds,
+                moderationStore.blockedUsernames,
+                moderationStore.blockedKeywords,
+            ) { hiddenTopicIds, blockedUsernames, blockedKeywords ->
+                TopicModerationRules(hiddenTopicIds, blockedUsernames, blockedKeywords)
+            }.collect { rules ->
+                moderationRules = rules
+                _uiState.update(::applyModeration)
+            }
+        }
         refresh()
         loadNodeInfo()
         viewModelScope.launch {
@@ -110,6 +142,7 @@ class NodeTopicsViewModel @Inject constructor(
                     state.copy(
                         nodeTitle = node.title.takeIf(String::isNotBlank) ?: state.nodeTitle,
                         nodeHeader = node.header?.takeIf(String::isNotBlank),
+                        nodeAvatarUrl = node.avatarUrl ?: state.nodeAvatarUrl,
                         topicsCount = node.topics,
                         starsCount = node.stars,
                     )
@@ -120,14 +153,14 @@ class NodeTopicsViewModel @Inject constructor(
 
     fun refresh() {
         if (_uiState.value.isLoading) return
-        _uiState.update { it.copy(isLoading = true, error = null) }
+        _uiState.update { it.copy(isLoading = true, error = null, loadMoreError = null) }
         viewModelScope.launch {
             // 断网时先把上次的快照放出来，列表里的帖子正文多半也已经离线了。
             if (_uiState.value.raw.isEmpty()) {
                 feedCacheRepository.load(feedKey)?.let { cached ->
                     _uiState.update { state ->
                         if (state.raw.isEmpty()) {
-                            state.copy(raw = cached.topics, cachedAt = cached.updatedAt)
+                            applyModeration(state.copy(raw = cached.topics, cachedAt = cached.updatedAt))
                         } else {
                             state
                         }
@@ -144,14 +177,15 @@ class NodeTopicsViewModel @Inject constructor(
                     page = 1
                     feedCacheRepository.save(feedKey, topics)
                     _uiState.update { state ->
-                        state.copy(
+                        applyModeration(state.copy(
                             raw = topics,
                             isLoading = false,
                             cachedAt = null,
                             reachedEnd = usingV1Fallback || topics.isEmpty(),
                             nodeTitle = topics.firstOrNull()?.node?.title
                                 ?.takeIf(String::isNotBlank) ?: state.nodeTitle,
-                        )
+                            nodeAvatarUrl = topics.firstOrNull()?.node?.avatarUrl ?: state.nodeAvatarUrl,
+                        ))
                     }
                 }
                 .onFailure { error ->
@@ -169,7 +203,7 @@ class NodeTopicsViewModel @Inject constructor(
     fun loadMore() {
         val state = _uiState.value
         if (state.isLoading || state.isLoadingMore || state.reachedEnd || usingV1Fallback) return
-        _uiState.update { it.copy(isLoadingMore = true) }
+        _uiState.update { it.copy(isLoadingMore = true, loadMoreError = null) }
         viewModelScope.launch {
             val nextPage = page + 1
             runCatching { fetchPageV2(nextPage) }
@@ -177,15 +211,24 @@ class NodeTopicsViewModel @Inject constructor(
                     page = nextPage
                     _uiState.update { current ->
                         val known = current.raw.mapTo(HashSet()) { it.id }
-                        current.copy(
-                            raw = current.raw + more.filter { it.id !in known },
+                        val unique = more.filter { it.id !in known }
+                        applyModeration(current.copy(
+                            raw = current.raw + unique,
                             isLoadingMore = false,
-                            reachedEnd = more.isEmpty(),
-                        )
+                            loadMoreError = null,
+                            reachedEnd = unique.isEmpty(),
+                        ))
                     }
                 }
-                .onFailure {
-                    _uiState.update { it.copy(isLoadingMore = false) }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isLoadingMore = false,
+                            loadMoreError = error.message
+                                ?.takeIf(String::isNotBlank)
+                                ?: "加载更多失败，请重试",
+                        )
+                    }
                 }
         }
     }
@@ -196,6 +239,23 @@ class NodeTopicsViewModel @Inject constructor(
 
     fun toggleFollow() {
         viewModelScope.launch { followedNodesStore.toggle(nodeName) }
+    }
+
+    private fun applyModeration(state: NodeTopicsUiState): NodeTopicsUiState {
+        val rules = moderationRules
+        val visible = if (rules == null) {
+            emptyList()
+        } else {
+            state.raw.filterNot { topic ->
+                moderationStore.isTopicHidden(
+                    topic = topic,
+                    hiddenIds = rules.hiddenTopicIds,
+                    blockedUsers = rules.blockedUsernames,
+                    keywords = rules.blockedKeywords,
+                )
+            }
+        }
+        return state.copy(visibleRaw = visible)
     }
 
     private suspend fun fetchPageV2(page: Int): List<Topic> {

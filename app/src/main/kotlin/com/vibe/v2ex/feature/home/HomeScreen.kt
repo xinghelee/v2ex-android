@@ -117,7 +117,7 @@ fun HomeScreen(
                 Icon(
                     Icons.Filled.Add,
                     contentDescription = "写新话题",
-                    tint = Color.White,
+                    tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -181,7 +181,7 @@ private fun FeedChipRail(
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 color = when {
-                    selected -> Color.White
+                    selected -> MaterialTheme.colorScheme.onPrimary
                     dark -> MaterialTheme.colorScheme.onSurfaceVariant
                     else -> Color(0xFF3C3C43)
                 },

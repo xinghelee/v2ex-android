@@ -42,6 +42,30 @@ data class TopicPageExtras(
     val proMembers: Set<String> = emptySet(),
 )
 
+/** A reply form and the reply rows that existed immediately before submitting it. */
+private data class ReplyFormSnapshot(
+    val once: String,
+    val existingReplyIds: Set<Long>,
+)
+
+/** The response facts needed to distinguish a real topic page from an error or login redirect. */
+private data class ReplyHttpPage(
+    val code: Int,
+    val finalPath: String,
+    val finalFragment: String?,
+    val html: String,
+    val followedRedirect: Boolean,
+)
+
+/** One real V2EX reply row (`div#r_<id>.cell`), never a form/textarea echo. */
+private data class ReplyDomRow(
+    val id: Long,
+    val floor: Int?,
+    val author: String,
+    val contentText: String,
+    val contentUrls: Set<String>,
+)
+
 /**
  * Drives the parts of V2EX that only exist as HTML forms, not the JSON API: posting a
  * reply, favoriting a topic, following a node. Login itself happens in a WebView (see
@@ -97,18 +121,242 @@ class WebSessionService @Inject constructor(
 
     suspend fun postReply(topicId: Long, content: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val topicPage = fetchDocument("$BASE/t/$topicId")
-            val once = extractOnce(topicPage) ?: error("missing once token")
-            val body = FormBody.Builder().add("content", content).add("once", once).build()
-            val request = Request.Builder().url("$BASE/t/$topicId").post(body).build()
-            okHttpClient.newCall(request).execute().use { response ->
-                val text = response.body?.string().orEmpty()
-                if (text.contains("你上一次回复是在")) error("回复过于频繁，请稍后再试")
-                if (!response.isSuccessful && !text.take(40).let { content.take(40) == it }) {
-                    error("回复失败")
+            val trimmed = content.trim()
+            require(trimmed.isNotEmpty()) { "回复内容不能为空" }
+
+            var form = replyOnce(topicId)
+            for (attempt in 0..1) {
+                val body = FormBody.Builder()
+                    .add("content", trimmed)
+                    .add("once", form.once)
+                    .build()
+                val request = Request.Builder()
+                    .url("$BASE/t/$topicId")
+                    .header("Referer", "$BASE/t/$topicId")
+                    .post(body)
+                    .build()
+
+                val page = executeReplyRequest(request)
+
+                if (page.code == 403 && attempt == 0) {
+                    // `once` is short lived. Fetch a fresh form and baseline,
+                    // then retry exactly once; never replay in an unbounded loop.
+                    form = replyOnce(topicId)
+                    continue
                 }
+
+                if (page.finalPath == "/signin" || page.finalPath.startsWith("/2fa")) {
+                    error("网页会话已失效，请重新登录 V2EX")
+                }
+                if ((page.code == 401 || page.code == 403) && !verifySession()) {
+                    error("网页会话已失效，请重新登录 V2EX")
+                }
+                if (page.html.contains("你上一次回复是在")) {
+                    error("回复过于频繁，V2EX 有回复间隔限制，请稍后再试")
+                }
+                val document = Jsoup.parse(page.html, "$BASE${page.finalPath}")
+                document.selectFirst("div.problem")?.let { problem ->
+                    error(problem.text().ifBlank { "回复被服务器拒绝，请稍后重试" })
+                }
+                if (hasCaptchaChallenge(document)) {
+                    error("V2EX 要求验证码，请在网页中完成回复")
+                }
+
+                if (page.code == 200) {
+                    // A rejected form may echo the draft in a textarea. Success
+                    // therefore requires the POST redirect, the real topic page,
+                    // and a newly-created `div#r_<id>` whose rendered semantics
+                    // match the submission (plus author when the session has one).
+                    val confirmed = page.followedRedirect &&
+                        page.finalPath == "/t/$topicId" &&
+                        confirmsNewReply(
+                            document = document,
+                            submitted = trimmed,
+                            existingReplyIds = form.existingReplyIds,
+                            expectedAuthor = secureStore.sessionUsername,
+                            finalFragment = page.finalFragment,
+                        )
+                    if (confirmed) return@runCatching
+                    error("回复结果未确认，请先到话题页确认；草稿已保留")
+                }
+
+                val detail = document.text().take(160).trim()
+                error(detail.ifBlank { "回复失败（HTTP ${page.code}）" })
+            }
+
+            // Defensive fall-through: the loop otherwise always confirms or throws.
+            if (!verifySession()) error("网页会话已失效，请重新登录 V2EX")
+            error("回复被服务器拒绝，请稍后重试")
+        }
+    }
+
+    /**
+     * Reads the actual reply form and snapshots the newest reply page before a
+     * POST. Long discussions render 100 replies per web page, so the final page
+     * is fetched first; otherwise every old row on that page would look "new"
+     * after V2EX redirects a successful POST there.
+     */
+    private suspend fun replyOnce(topicId: Long): ReplyFormSnapshot {
+        var page = executeReplyRequest(Request.Builder().url("$BASE/t/$topicId").build())
+        var document = validateReplyPage(topicId, page)
+
+        val lastPage = lastReplyPage(document)
+        if (lastPage > 1) {
+            page = executeReplyRequest(Request.Builder().url("$BASE/t/$topicId?p=$lastPage").build())
+            document = validateReplyPage(topicId, page)
+        }
+
+        val once = extractReplyOnce(document, topicId)
+        if (once.isNullOrBlank()) {
+            // A valid session can still have no form when the topic is closed,
+            // restricted, or the account lacks permission. Do not call all of
+            // those cases "session expired".
+            if (!verifySession()) error("网页会话已失效，请重新登录 V2EX")
+            error("当前话题不可回复，可能已关闭回复或账号没有权限")
+        }
+
+        return ReplyFormSnapshot(
+            once = once,
+            existingReplyIds = replyRows(document).mapTo(mutableSetOf()) { it.id },
+        )
+    }
+
+    private fun executeReplyRequest(request: Request): ReplyHttpPage =
+        okHttpClient.newCall(request).execute().use { response ->
+            var prior = response.priorResponse
+            var followedRedirect = false
+            while (prior != null) {
+                if (prior.code in 300..399) followedRedirect = true
+                prior = prior.priorResponse
+            }
+            ReplyHttpPage(
+                code = response.code,
+                finalPath = response.request.url.encodedPath,
+                finalFragment = response.request.url.fragment,
+                html = response.body.string(),
+                followedRedirect = followedRedirect,
+            )
+        }
+
+    /** Validates transport/redirect/problem state without guessing from a missing once token. */
+    private suspend fun validateReplyPage(topicId: Long, page: ReplyHttpPage): Document {
+        if (page.finalPath == "/signin" || page.finalPath.startsWith("/2fa")) {
+            error("网页会话已失效，请重新登录 V2EX")
+        }
+        if (page.code >= 500) {
+            error("V2EX 服务暂时不可用（HTTP ${page.code}），请稍后重试")
+        }
+        if ((page.code == 401 || page.code == 403) && !verifySession()) {
+            error("网页会话已失效，请重新登录 V2EX")
+        }
+
+        val document = Jsoup.parse(page.html, "$BASE${page.finalPath}")
+        document.selectFirst("div.problem")?.let { problem ->
+            error(problem.text().ifBlank { "当前话题不可回复" })
+        }
+        if (hasCaptchaChallenge(document)) {
+            error("V2EX 要求验证码，请在网页中完成回复")
+        }
+        if (page.code !in 200..299) {
+            error("无法读取回复表单（HTTP ${page.code}），请稍后重试")
+        }
+        if (page.finalPath != "/t/$topicId") {
+            if (!verifySession()) error("网页会话已失效，请重新登录 V2EX")
+            error("回复页面返回异常，请稍后重试")
+        }
+        return document
+    }
+
+    /** The reply form's once, deliberately scoped so favorite links cannot masquerade as it. */
+    private fun extractReplyOnce(document: Document, topicId: Long): String? {
+        val form = document.select("form").firstOrNull { candidate ->
+            val action = candidate.attr("action").substringBefore('?').trimEnd('/')
+            candidate.selectFirst("textarea[name=content]") != null &&
+                (action.isBlank() || action == "/t/$topicId" || action == "$BASE/t/$topicId")
+        }
+        return form?.selectFirst("input[name=once]")?.attr("value")?.takeIf(String::isNotBlank)
+    }
+
+    private fun lastReplyPage(document: Document): Int =
+        document.selectFirst("input.page_input[max]")
+            ?.attr("max")
+            ?.toIntOrNull()
+            ?.coerceAtLeast(1)
+            ?: document.select("a[href]")
+                .mapNotNull { PAGE_QUERY_REGEX.find(it.attr("href"))?.groupValues?.get(1)?.toIntOrNull() }
+                .maxOrNull()
+                ?.coerceAtLeast(1)
+            ?: 1
+
+    private fun replyRows(document: Document): List<ReplyDomRow> =
+        document.select("div[id^=r_].cell").mapNotNull { row ->
+            val id = row.id().removePrefix("r_").toLongOrNull() ?: return@mapNotNull null
+            val content = row.selectFirst(".reply_content") ?: return@mapNotNull null
+            ReplyDomRow(
+                id = id,
+                floor = row.selectFirst("span.no")?.text()?.trim()?.toIntOrNull(),
+                author = row.selectFirst("strong > a[href^=/member/]")?.text().orEmpty(),
+                contentText = content.text(),
+                contentUrls = content.select("a[href], img[src]").flatMapTo(mutableSetOf()) { element ->
+                    listOfNotNull(
+                        element.attr("href").takeIf(String::isNotBlank),
+                        element.attr("src").takeIf(String::isNotBlank),
+                    )
+                },
+            )
+        }
+
+    private fun confirmsNewReply(
+        document: Document,
+        submitted: String,
+        existingReplyIds: Set<Long>,
+        expectedAuthor: String?,
+        finalFragment: String?,
+    ): Boolean {
+        val expectedText = semanticReplyText(submitted, markdownSource = true)
+        val expectedUrls = URL_REGEX.findAll(submitted).map { it.value.trimEnd('.', ',', ';') }.toSet()
+        val expectedFloor = finalFragment
+            ?.let { REPLY_FRAGMENT_REGEX.matchEntire(it)?.groupValues?.get(1)?.toIntOrNull() }
+        var candidates = replyRows(document).filter { it.id !in existingReplyIds }
+
+        // V2EX normally redirects to `#replyN`. Treat it as a narrowing hint,
+        // but do not fail solely because a future template changes its meaning.
+        expectedFloor?.let { floor ->
+            candidates.filter { it.floor == floor }.takeIf { it.isNotEmpty() }?.let { candidates = it }
+        }
+        expectedAuthor?.trim()?.takeIf(String::isNotEmpty)?.let { username ->
+            candidates = candidates.filter { it.author.equals(username, ignoreCase = true) }
+        }
+
+        return candidates.any { row ->
+            val actualText = semanticReplyText(row.contentText, markdownSource = false)
+            when {
+                expectedText.isNotEmpty() -> actualText == expectedText
+                expectedUrls.isNotEmpty() -> expectedUrls.all { expected ->
+                    row.contentUrls.any { actual -> actual.contains(expected) || expected.contains(actual) }
+                }
+                else -> false
             }
         }
+    }
+
+    /**
+     * Compares user Markdown with the rendered reply's visible text. This is a
+     * deliberately small semantic normalizer (emphasis, links, lists, quotes,
+     * code fences and whitespace), not an HTML-page substring probe.
+     */
+    private fun semanticReplyText(value: String, markdownSource: Boolean): String {
+        var text = value
+        if (markdownSource) {
+            text = MARKDOWN_IMAGE_REGEX.replace(text, "")
+            text = MARKDOWN_LINK_REGEX.replace(text) { it.groupValues[1] }
+            text = MARKDOWN_AUTOLINK_REGEX.replace(text) { it.groupValues[1] }
+            text = MARKDOWN_FENCE_REGEX.replace(text, "")
+            text = MARKDOWN_LINE_PREFIX_REGEX.replace(text, "")
+        }
+        text = Jsoup.parse(text).text()
+        text = MARKDOWN_CONTROL_REGEX.replace(text, "")
+        return WHITESPACE_REGEX.replace(text.replace('\u00a0', ' '), " ").trim()
     }
 
     suspend fun setFavoriteTopic(topicId: Long, favorited: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
@@ -373,7 +621,17 @@ class WebSessionService @Inject constructor(
         }
     }
 
+    // Kept broad for the standalone /write flow, whose page contains no user discussion text.
     private fun mentionsCaptcha(html: String): Boolean = html.contains("captcha") || html.contains("验证码")
+
+    /** Scoped to challenge/form markup so a normal reply discussing "captcha/验证码" is not a false hit. */
+    private fun hasCaptchaChallenge(document: Document): Boolean =
+        document.select(
+            "input[name*=captcha], input[id*=captcha], img[src*=captcha], " +
+                "[class*=captcha], [id*=captcha]",
+        ).isNotEmpty() || document.select("form").any { form ->
+            form.text().contains("验证码") && form.select("input[name=code]").isNotEmpty()
+        }
 
     /** Called after a successful WebView login — see WebLoginScreen. */
     fun saveWebSession(cookieHeader: String, username: String) {
@@ -392,6 +650,21 @@ class WebSessionService @Inject constructor(
     private companion object {
         val TOPIC_ID_REGEX = Regex("""/t/(\d+)""")
         val GRAVATAR_SIZE_REGEX = Regex("""([?&]s=)\d+""")
+        val PAGE_QUERY_REGEX = Regex("""[?&]p=(\d+)""")
+        val REPLY_FRAGMENT_REGEX = Regex("""reply(\d+)""", RegexOption.IGNORE_CASE)
+        val URL_REGEX = Regex("""https?://[^\s<>()]+""", RegexOption.IGNORE_CASE)
+        val MARKDOWN_IMAGE_REGEX = Regex("""!\[[^]]*]\([^\n)]+\)""")
+        val MARKDOWN_LINK_REGEX = Regex("""\[([^]]+)]\([^\n)]+\)""")
+        val MARKDOWN_AUTOLINK_REGEX = Regex(
+            """<((?:https?://|mailto:)[^>]+)>""",
+            RegexOption.IGNORE_CASE,
+        )
+        val MARKDOWN_FENCE_REGEX = Regex("""(?m)^\s*```[^\n]*$""")
+        val MARKDOWN_LINE_PREFIX_REGEX = Regex(
+            """(?m)^\s{0,3}(?:#{1,6}\s+|>\s?|[-+*]\s+|\d+[.)]\s+)""",
+        )
+        val MARKDOWN_CONTROL_REGEX = Regex("""[*_~`]""")
+        val WHITESPACE_REGEX = Regex("""\s+""")
         val WEB_TIME_FORMAT: DateTimeFormatter =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss XXX", Locale.US)
     }

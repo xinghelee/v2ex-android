@@ -29,7 +29,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             val uiState by appViewModel.uiState.collectAsState()
             val deepLink by incomingDeepLink.collectAsState()
-            V2exTheme(darkModePreference = uiState.darkMode, appTheme = uiState.theme) {
+            V2exTheme(
+                darkModePreference = uiState.darkMode,
+                appTheme = uiState.theme,
+                readingFontSize = uiState.readingFontSize,
+                readingLineSpacing = uiState.readingLineSpacing,
+                readingMonoFont = uiState.readingMonoFont,
+            ) {
                 // 「使用须知」闸门是 App Store Guideline 1.2 的产物，Android 版隐藏不展示
                 // （AgreementScreen 代码保留，未接线）。
                 V2exApp(

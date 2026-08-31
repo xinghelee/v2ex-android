@@ -4,6 +4,7 @@ import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
@@ -31,6 +33,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -72,6 +75,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -268,6 +275,7 @@ fun TopicScreen(
                             item(key = "reply-header") {
                                 ReplyHeaderRow(
                                     count = topic.replies,
+                                    warning = uiState.replyWarning,
                                     onlyPoster = uiState.onlyPoster,
                                     onlyMine = uiState.onlyMine,
                                     onToggleOnlyPoster = viewModel::toggleOnlyPoster,
@@ -300,6 +308,7 @@ fun TopicScreen(
                             CardGroupItem(
                                 position = cardGroupPosition(index, visible.lastIndex),
                                 dividerInset = 59.dp,
+                                outlined = true,
                             ) {
                                 ReplyRow(
                                     floorReply = floorReply,
@@ -521,7 +530,13 @@ private fun TopicCard(
     isOfflineSaved: Boolean,
     onAuthorClick: (String) -> Unit,
 ) {
-    V2Card {
+    V2Card(
+        modifier = Modifier.border(
+            width = 0.5.dp,
+            color = MaterialTheme.colorScheme.outlineVariant,
+            shape = RoundedCornerShape(24.dp),
+        ),
+    ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Text(
                 text = topic.title,
@@ -668,7 +683,7 @@ private fun TopicSummaryCard(
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
-                        .background(V2Colors.accentSoft(LocalV2Dark.current))
+                        .background(MaterialTheme.colorScheme.primaryContainer)
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
@@ -730,7 +745,7 @@ private fun SummaryAction(text: String, enabled: Boolean, onClick: () -> Unit) {
         color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(V2Colors.accentSoft(LocalV2Dark.current))
+            .background(MaterialTheme.colorScheme.primaryContainer)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 13.dp, vertical = 8.dp),
     )
@@ -768,62 +783,99 @@ internal fun summaryMarkdown(source: String) = buildAnnotatedString {
     }
 }
 
-/** 回复区头行：`N 条回复` + 「按楼层 / 只看楼主」mini pill。 */
+/** 回复区头行：`N 条回复` + 单一分段筛选面，保留 Android 的「与我有关」。 */
 @Composable
 private fun ReplyHeaderRow(
     count: Int,
+    warning: String?,
     onlyPoster: Boolean,
     onlyMine: Boolean,
     onToggleOnlyPoster: () -> Unit,
     onToggleOnlyMine: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 6.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
         Text(
             text = "$count 条回复",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.padding(horizontal = 6.dp),
         )
-        MiniPill(
-            text = "按楼层",
-            selected = !onlyPoster && !onlyMine,
-            onClick = {
+        ReplyFilterControl(
+            onlyPoster = onlyPoster,
+            onlyMine = onlyMine,
+            onShowAll = {
                 when {
                     onlyPoster -> onToggleOnlyPoster()
                     onlyMine -> onToggleOnlyMine()
                 }
             },
+            onShowPoster = { if (!onlyPoster) onToggleOnlyPoster() },
+            onShowMine = { if (!onlyMine) onToggleOnlyMine() },
+            modifier = Modifier.padding(top = 8.dp),
         )
-        Spacer(Modifier.width(6.dp))
-        MiniPill(text = "只看楼主", selected = onlyPoster, onClick = { if (!onlyPoster) onToggleOnlyPoster() })
-        Spacer(Modifier.width(6.dp))
-        MiniPill(text = "与我有关", selected = onlyMine, onClick = { if (!onlyMine) onToggleOnlyMine() })
+        if (!warning.isNullOrBlank()) {
+            Text(
+                text = warning,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+            )
+        }
     }
 }
 
 @Composable
-private fun MiniPill(text: String, selected: Boolean, onClick: (() -> Unit)?) {
-    val shape = RoundedCornerShape(12.dp)
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodySmall,
-        fontWeight = FontWeight.Medium,
-        color = if (selected) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        modifier = Modifier
+private fun ReplyFilterControl(
+    onlyPoster: Boolean,
+    onlyMine: Boolean,
+    onShowAll: () -> Unit,
+    onShowPoster: () -> Unit,
+    onShowMine: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val selectedText = MaterialTheme.colorScheme.onPrimary
+    val shape = RoundedCornerShape(50)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
             .clip(shape)
-            .background(if (selected) V2Colors.accentSoft(LocalV2Dark.current) else PillNeutralBg)
-            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
-            .padding(horizontal = 11.dp, vertical = 5.dp),
-    )
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .padding(3.dp),
+    ) {
+        listOf(
+            Triple("按楼层", !onlyPoster && !onlyMine, onShowAll),
+            Triple("只看楼主", onlyPoster, onShowPoster),
+            Triple("与我有关", onlyMine, onShowMine),
+        ).forEach { (label, selected, action) ->
+            Box(
+                modifier = Modifier
+                    .clip(shape)
+                    .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                    .clickable(role = Role.Tab, onClick = action)
+                    .semantics {
+                        this.role = Role.Tab
+                        this.selected = selected
+                    }
+                    .heightIn(min = 44.dp)
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    color = if (selected) selectedText else MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
 }
 
 /** Compact map of a long discussion. First/last are retained and intermediate floors are sampled evenly. */
@@ -843,7 +895,16 @@ private fun DiscussionTrack(
         }.distinctBy { it.reply.id }
     }
 
-    V2Card(modifier = modifier.fillMaxWidth()) {
+    V2Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .border(
+                width = 0.5.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                shape = RoundedCornerShape(18.dp),
+            ),
+        shape = RoundedCornerShape(18.dp),
+    ) {
         Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -921,7 +982,7 @@ private fun ReplyRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                if (highlighted) V2Colors.accentSoft(LocalV2Dark.current)
+                if (highlighted) MaterialTheme.colorScheme.primaryContainer
                 else Color.Transparent,
             )
             .padding(horizontal = 16.dp, vertical = 14.dp),
@@ -996,6 +1057,8 @@ private fun ReplyRow(
             ContentBlocksView(
                 blocks = floorReply.blocks,
                 textStyle = MaterialTheme.typography.bodyMedium,
+                fontSizeOffset = -1f,
+                lineSpacingScale = 0.75f,
                 modifier = Modifier.padding(top = 6.dp),
             )
         }
@@ -1012,7 +1075,7 @@ private fun AuthorBadge() {
         modifier = Modifier
             .padding(start = 6.dp)
             .clip(RoundedCornerShape(5.dp))
-            .background(V2Colors.accentSoft(LocalV2Dark.current))
+            .background(MaterialTheme.colorScheme.primaryContainer)
             .padding(horizontal = 6.dp, vertical = 1.dp),
     )
 }
@@ -1081,28 +1144,33 @@ private fun ReplyComposerBar(
     onOpenWebReply: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dark = LocalV2Dark.current
     Column(modifier = modifier.fillMaxWidth()) {
         if (isLoggedIn && mentionCandidates.isNotEmpty()) {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                modifier = Modifier.padding(bottom = 8.dp),
+            val trayShape = RoundedCornerShape(14.dp)
+            Box(
+                modifier = Modifier
+                    .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
+                    .fillMaxWidth()
+                    .clip(trayShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, trayShape),
             ) {
-                itemsIndexed(mentionCandidates, key = { _, name -> name }) { _, name ->
-                    Text(
-                        text = name,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(
-                                if (dark) Color(0xFF2C2C2E).copy(alpha = 0.94f) else Color.White.copy(alpha = 0.94f),
-                            )
-                            .clickable { onInsertMention(name) }
-                            .padding(horizontal = 11.dp, vertical = 6.dp),
-                    )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 3.dp),
+                ) {
+                    itemsIndexed(mentionCandidates, key = { _, name -> name }) { _, name ->
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(18.dp))
+                                .clickable { onInsertMention(name) }
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
+                        )
+                    }
                 }
             }
         }
@@ -1181,13 +1249,13 @@ private fun ReplyComposerBar(
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                         )
                     } else {
                         Icon(
                             imageVector = Icons.Filled.ArrowUpward,
                             contentDescription = "发送回复",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(18.dp),
                         )
                     }

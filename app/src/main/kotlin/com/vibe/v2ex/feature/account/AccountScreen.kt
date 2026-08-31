@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -135,7 +136,7 @@ fun AccountScreen(onBack: () -> Unit, viewModel: AccountViewModel = hiltViewMode
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        if (uiState.personalAccessToken.isNotBlank()) {
+                        if (uiState.hasSavedPersonalAccessToken) {
                             Text(
                                 "已配置",
                                 style = MaterialTheme.typography.labelSmall,
@@ -149,8 +150,52 @@ fun AccountScreen(onBack: () -> Unit, viewModel: AccountViewModel = hiltViewMode
                         placeholder = "粘贴从 v2ex.com/settings/tokens 获取的 Token",
                         modifier = Modifier.padding(top = 14.dp),
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Button(
+                            onClick = viewModel::verifyAndSavePat,
+                            enabled = uiState.personalAccessToken.isNotBlank() &&
+                                !uiState.isValidatingPersonalAccessToken,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            if (uiState.isValidatingPersonalAccessToken) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                )
+                                Text("验证中…", modifier = Modifier.padding(start = 8.dp))
+                            } else {
+                                Text("验证并保存")
+                            }
+                        }
+                        if (uiState.hasSavedPersonalAccessToken) {
+                            OutlinedButton(
+                                onClick = viewModel::clearSavedPat,
+                                enabled = !uiState.isValidatingPersonalAccessToken,
+                                modifier = Modifier.padding(start = 10.dp),
+                                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error,
+                                ),
+                            ) { Text("清除") }
+                        }
+                    }
+                    uiState.personalAccessTokenStatus?.let { status ->
+                        Text(
+                            text = status,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (uiState.personalAccessTokenStatusIsError) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                            modifier = Modifier.padding(top = 10.dp),
+                        )
+                    }
                     Text(
-                        "修改后自动加密保存在本机，不参与系统备份。",
+                        "输入内容只是草稿；验证通过后才会加密保存在本机，不参与系统备份。",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.padding(top = 10.dp),

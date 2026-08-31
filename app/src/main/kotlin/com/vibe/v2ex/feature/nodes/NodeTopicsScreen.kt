@@ -2,6 +2,7 @@ package com.vibe.v2ex.feature.nodes
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,12 +11,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
@@ -41,6 +44,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,7 +65,6 @@ import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.V2Colors
 import com.vibe.v2ex.designsystem.cardGroupPosition
 import com.vibe.v2ex.designsystem.htmlToPlainText
-import com.vibe.v2ex.designsystem.identityColor
 import com.vibe.v2ex.designsystem.relativeTimeText
 import com.vibe.v2ex.designsystem.topicRowTitle
 import java.util.Locale
@@ -157,6 +164,7 @@ fun NodeTopicsScreen(
                         OfflineNoticeBar(Modifier.padding(bottom = 10.dp), cachedAt = cachedAt)
                     }
                 }
+                val visibleTopics = uiState.visibleTopics
                 when {
                     uiState.raw.isEmpty() && uiState.isLoading -> {
                         item(key = "loading") {
@@ -190,14 +198,14 @@ fun NodeTopicsScreen(
                             }
                         }
                     }
-                    uiState.raw.isEmpty() -> {
+                    visibleTopics.isEmpty() -> {
                         item(key = "empty") {
                             Box(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    text = "该节点暂无话题",
+                                    text = if (uiState.raw.isEmpty()) "该节点暂无话题" else "没有可显示的话题",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -205,7 +213,7 @@ fun NodeTopicsScreen(
                         }
                     }
                     else -> {
-                        val topics = uiState.topics
+                        val topics = visibleTopics
                         itemsIndexed(topics, key = { _, topic -> topic.id }) { index, topic ->
                             CardGroupItem(position = cardGroupPosition(index, topics.lastIndex)) {
                                 NodeTopicRow(
@@ -217,14 +225,32 @@ fun NodeTopicsScreen(
                         }
                         if (!uiState.reachedEnd) {
                             item(key = "load-more") {
-                                // 末行出现即翻页；按 raw.size 触发，配合 VM 的 isLoadingMore 闸门保证每页只请求一次
-                                LaunchedEffect(uiState.raw.size) { viewModel.loadMore() }
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    if (uiState.isLoadingMore) {
-                                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                val loadMoreError = uiState.loadMoreError
+                                if (loadMoreError != null) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 12.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Text(
+                                            text = loadMoreError,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Button(onClick = viewModel::loadMore) { Text("重试加载更多") }
+                                    }
+                                } else {
+                                    // 末行出现即翻页；错误态切换为显式重试，不会按相同 key 无限请求。
+                                    LaunchedEffect(uiState.raw.size) { viewModel.loadMore() }
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (uiState.isLoadingMore) {
+                                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                        }
                                     }
                                 }
                             }
@@ -236,7 +262,7 @@ fun NodeTopicsScreen(
     }
 }
 
-/** 节点头卡：56dp 身份方块、24sp 标题 + /go/ 路径、关注 pill、简介、统计行。 */
+/** 节点头卡：56dp 真实节点头像、24sp 标题 + /go/ 路径、关注 pill、简介、统计行。 */
 @Composable
 private fun NodeHeaderCard(
     uiState: NodeTopicsUiState,
@@ -248,20 +274,13 @@ private fun NodeHeaderCard(
     V2Card(modifier = modifier) {
         Column(modifier = Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(identityColor(uiState.nodeName)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = title.take(1),
-                        color = Color.White,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
+                NodeIdentitySquare(
+                    name = uiState.nodeName,
+                    title = title,
+                    avatarUrl = uiState.nodeAvatarUrl,
+                    size = 56.dp,
+                    transparentFallback = true,
+                )
                 Spacer(Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -284,14 +303,22 @@ private fun NodeHeaderCard(
                 Text(
                     text = if (uiState.isFollowed) "已关注" else "关注",
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (uiState.isFollowed) MaterialTheme.colorScheme.primary else Color.White,
+                    color = if (uiState.isFollowed) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onPrimary
+                    },
                     modifier = Modifier
                         .clip(RoundedCornerShape(18.dp))
                         .background(
                             if (uiState.isFollowed) V2Colors.accentSoft(dark)
                             else MaterialTheme.colorScheme.primary,
                         )
-                        .clickable(onClick = onToggleFollow)
+                        .clickable(role = Role.Button, onClick = onToggleFollow)
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = if (uiState.isFollowed) "取消关注 $title" else "关注 $title"
+                        }
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
@@ -347,18 +374,15 @@ private fun SortChipsRow(
     modifier: Modifier = Modifier,
 ) {
     val dark = LocalV2Dark.current
-    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         NodeTopicsSort.entries.forEach { sort ->
             val isSelected = sort == selected
-            Text(
-                text = sort.label,
-                fontSize = 14.sp,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                color = when {
-                    isSelected -> Color.White
-                    dark -> MaterialTheme.colorScheme.onSurfaceVariant
-                    else -> V2Colors.SecondaryLabelLight
-                },
+            Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(15.dp))
                     .background(
@@ -368,9 +392,27 @@ private fun SortChipsRow(
                             else -> Color.White.copy(alpha = 0.8f)
                         },
                     )
-                    .clickable { onSelect(sort) }
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
-            )
+                    .clickable(role = Role.Button) { onSelect(sort) }
+                    .semantics {
+                        role = Role.Button
+                        this.selected = isSelected
+                        contentDescription = "按${sort.label}排序"
+                    }
+                    .heightIn(min = 44.dp)
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = sort.label,
+                    fontSize = 14.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                    color = when {
+                        isSelected -> MaterialTheme.colorScheme.onPrimary
+                        dark -> MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> V2Colors.SecondaryLabelLight
+                    },
+                )
+            }
         }
     }
 }

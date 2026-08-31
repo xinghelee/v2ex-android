@@ -8,6 +8,7 @@ import com.vibe.v2ex.data.model.Topic
 import kotlinx.serialization.Serializable
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -53,7 +54,7 @@ data class V2Envelope<T>(
 /** V2EX API 2.0 — Personal Access Token (Bearer) required, enveloped responses. */
 interface V2exApiV2 {
     @GET("api/v2/member")
-    suspend fun me(): V2Envelope<Member>
+    suspend fun me(@Header("Authorization") authorization: String? = null): V2Envelope<Member>
 
     /** Only page 1 is ever actually used by the UI — the API supports more but nothing paginates it. */
     @GET("api/v2/notifications")

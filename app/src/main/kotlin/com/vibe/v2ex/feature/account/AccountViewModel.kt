@@ -5,15 +5,18 @@ import androidx.lifecycle.viewModelScope
 import com.vibe.v2ex.data.datastore.FollowedNodesStore
 import com.vibe.v2ex.data.datastore.SecureStore
 import com.vibe.v2ex.data.datastore.SettingsDataStore
+import com.vibe.v2ex.data.remote.V2exApiV2
 import com.vibe.v2ex.data.remote.WebSessionService
 import com.vibe.v2ex.data.repository.FavoritesRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.IOException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 import javax.inject.Inject
 
 /** 网页登录候选会话的确认结果。 */
@@ -31,7 +34,12 @@ enum class WebLoginConfirmation {
 data class AccountUiState(
     val webSessionActive: Boolean = false,
     val sessionUsername: String? = null,
+    /** 输入框只编辑这份内存草稿，验证成功前绝不会写入 SecureStore。 */
     val personalAccessToken: String = "",
+    val hasSavedPersonalAccessToken: Boolean = false,
+    val isValidatingPersonalAccessToken: Boolean = false,
+    val personalAccessTokenStatus: String? = null,
+    val personalAccessTokenStatusIsError: Boolean = false,
     val showWebLogin: Boolean = false,
     /** true = 存着登录态但服务器已不认（cookie 过期）；null = 尚未校验或无法校验。 */
     val sessionExpired: Boolean? = null,
@@ -45,6 +53,7 @@ data class AccountUiState(
  */
 @HiltViewModel
 class AccountViewModel @Inject constructor(
+    private val apiV2: V2exApiV2,
     private val webSessionService: WebSessionService,
     private val secureStore: SecureStore,
     private val favoritesRepository: FavoritesRepository,
@@ -56,6 +65,7 @@ class AccountViewModel @Inject constructor(
             webSessionActive = secureStore.isWebSessionActive,
             sessionUsername = secureStore.sessionUsername,
             personalAccessToken = secureStore.personalAccessToken.orEmpty(),
+            hasSavedPersonalAccessToken = secureStore.isTokenSet,
         ),
     )
     val uiState: StateFlow<AccountUiState> = _uiState.asStateFlow()
@@ -132,8 +142,93 @@ class AccountViewModel @Inject constructor(
     }
 
     fun onPatChange(value: String) {
-        _uiState.value = _uiState.value.copy(personalAccessToken = value)
-        secureStore.personalAccessToken = value.ifBlank { null }
+        _uiState.value = _uiState.value.copy(
+            personalAccessToken = value,
+            personalAccessTokenStatus = null,
+            personalAccessTokenStatusIsError = false,
+        )
+    }
+
+    fun verifyAndSavePat() {
+        val current = _uiState.value
+        if (current.isValidatingPersonalAccessToken) return
+
+        val candidate = current.personalAccessToken.filterNot(Char::isWhitespace)
+        if (candidate.isBlank()) {
+            _uiState.value = current.copy(
+                personalAccessTokenStatus = "请先输入 Personal Access Token",
+                personalAccessTokenStatusIsError = true,
+            )
+            return
+        }
+
+        _uiState.value = current.copy(
+            isValidatingPersonalAccessToken = true,
+            personalAccessTokenStatus = "正在验证 Token…",
+            personalAccessTokenStatusIsError = false,
+        )
+
+        viewModelScope.launch {
+            val result = runCatching { apiV2.me(authorization = "Bearer $candidate") }
+
+            // 验证期间如果草稿已被编辑，旧请求的结果不得覆盖新草稿或已存 Token。
+            if (_uiState.value.personalAccessToken.filterNot(Char::isWhitespace) != candidate) {
+                _uiState.value = _uiState.value.copy(
+                    isValidatingPersonalAccessToken = false,
+                    personalAccessTokenStatus = "Token 已更改，请重新验证",
+                    personalAccessTokenStatusIsError = true,
+                )
+                return@launch
+            }
+
+            result.onSuccess { envelope ->
+                val member = envelope.result
+                if (envelope.success == true && member != null && member.username.isNotBlank()) {
+                    // 这是候选 Token 唯一的持久化点：服务端验证通过后才替换旧值。
+                    secureStore.personalAccessToken = candidate
+                    _uiState.value = _uiState.value.copy(
+                        personalAccessToken = candidate,
+                        hasSavedPersonalAccessToken = true,
+                        isValidatingPersonalAccessToken = false,
+                        personalAccessTokenStatus = "已验证并保存，连接为 ${member.username}",
+                        personalAccessTokenStatusIsError = false,
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        isValidatingPersonalAccessToken = false,
+                        personalAccessTokenStatus = "Token 无效或已失效，未更改已保存的 Token",
+                        personalAccessTokenStatusIsError = true,
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    isValidatingPersonalAccessToken = false,
+                    personalAccessTokenStatus = patValidationErrorMessage(error),
+                    personalAccessTokenStatusIsError = true,
+                )
+            }
+        }
+    }
+
+    fun clearSavedPat() {
+        if (_uiState.value.isValidatingPersonalAccessToken) return
+        secureStore.clearToken()
+        _uiState.value = _uiState.value.copy(
+            personalAccessToken = "",
+            hasSavedPersonalAccessToken = false,
+            personalAccessTokenStatus = "已清除保存在本机的 Token",
+            personalAccessTokenStatusIsError = false,
+        )
+    }
+
+    /** 只返回可控文案，不向 UI 传递可能包含请求细节的底层异常信息。 */
+    private fun patValidationErrorMessage(error: Throwable): String = when (error) {
+        is IOException -> "网络连接失败，未更改已保存的 Token，请检查网络后重试"
+        is HttpException -> when (error.code()) {
+            401, 403 -> "Token 无效或权限不足，未更改已保存的 Token"
+            else -> "服务器暂时无法验证 Token，未更改已保存的 Token"
+        }
+        else -> "Token 验证失败，未更改已保存的 Token，请稍后重试"
     }
 
     private companion object {

@@ -142,7 +142,7 @@ fun WriteScreen(
                 },
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .clip(RoundedCornerShape(16.dp))
@@ -373,7 +373,11 @@ private fun NodeSquare(node: Node?, size: androidx.compose.ui.unit.Dp = 30.dp) {
     ) {
         Text(
             text = node?.title?.take(1) ?: "?",
-            color = Color.White,
+            color = if (node != null) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
         )

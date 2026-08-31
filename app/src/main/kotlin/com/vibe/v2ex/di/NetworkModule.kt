@@ -47,8 +47,12 @@ object NetworkModule {
             val request = chain.request()
             // 粘贴的 token 可能夹带换行/空格 — 头部值里出现 0x0a 会让 OkHttp 直接抛异常
             val token = secureStore.personalAccessToken?.filterNot(Char::isWhitespace)
-            val authorized = if (!token.isNullOrBlank() && request.url.encodedPath.contains("/api/v2/")) {
-                request.newBuilder().addHeader("Authorization", "Bearer $token").build()
+            val authorized = if (
+                request.header("Authorization") == null &&
+                !token.isNullOrBlank() &&
+                request.url.encodedPath.contains("/api/v2/")
+            ) {
+                request.newBuilder().header("Authorization", "Bearer $token").build()
             } else {
                 request
             }
@@ -69,7 +73,11 @@ object NetworkModule {
             chain.proceed(request2)
         }
         .addInterceptor(
-            HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC },
+            HttpLoggingInterceptor().apply {
+                // BASIC 当前不输出请求头；仍显式脱敏，避免未来提高日志级别时泄露 PAT。
+                redactHeader("Authorization")
+                level = HttpLoggingInterceptor.Level.BASIC
+            },
         )
         .build()
 

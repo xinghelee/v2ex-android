@@ -6,11 +6,18 @@ package com.vibe.v2ex.data.nodes
  * `icon` names a Material icon id the UI layer maps to an ImageVector; kept as a
  * string here to keep this file UI-framework-free.
  */
-data class NodeCategory(val title: String, val icon: String, val nodeNames: List<String>)
+data class NodeCategory(
+    /** Stable navigation key. Keep this independent from the localized title. */
+    val id: String,
+    val title: String,
+    val icon: String,
+    val nodeNames: List<String>,
+)
 
 object NodeCatalog {
     val categories: List<NodeCategory> = listOf(
         NodeCategory(
+            id = "tech",
             title = "技术",
             icon = "code",
             nodeNames = listOf(
@@ -21,6 +28,7 @@ object NodeCatalog {
             ),
         ),
         NodeCategory(
+            id = "creative",
             title = "创意",
             icon = "lightbulb",
             nodeNames = listOf(
@@ -29,6 +37,7 @@ object NodeCatalog {
             ),
         ),
         NodeCategory(
+            id = "life",
             title = "生活",
             icon = "coffee",
             nodeNames = listOf(
@@ -38,6 +47,7 @@ object NodeCatalog {
             ),
         ),
         NodeCategory(
+            id = "play",
             title = "好玩",
             icon = "games",
             nodeNames = listOf(
@@ -46,6 +56,7 @@ object NodeCatalog {
             ),
         ),
         NodeCategory(
+            id = "apple",
             title = "Apple",
             icon = "apple",
             nodeNames = listOf(
@@ -54,6 +65,7 @@ object NodeCatalog {
             ),
         ),
         NodeCategory(
+            id = "hardware",
             title = "硬件与自建",
             icon = "storage",
             nodeNames = listOf(
@@ -62,16 +74,19 @@ object NodeCatalog {
             ),
         ),
         NodeCategory(
+            id = "jobs",
             title = "酷工作",
             icon = "work",
             nodeNames = listOf("jobs", "career", "outsourcing", "internship", "remotework"),
         ),
         NodeCategory(
+            id = "deals",
             title = "交易",
             icon = "sell",
             nodeNames = listOf("all4all", "exchange", "free", "dn", "tuan", "promotions"),
         ),
         NodeCategory(
+            id = "qna",
             title = "问与答",
             icon = "help",
             nodeNames = listOf("qna", "howto", "search", "opensource"),
@@ -89,6 +104,19 @@ object NodeCatalog {
         "invest" to "投资", "ideas" to "奇思妙想", "all4all" to "二手交易", "health" to "健康",
     )
 
+    private val categoriesById: Map<String, NodeCategory> = categories.associateBy(NodeCategory::id)
+
+    /** Resolves a persisted/navigation category id without depending on list position. */
+    fun category(id: String): NodeCategory? = categoriesById[id]
+
     fun displayName(nodeName: String, liveNodes: Map<String, String> = emptyMap()): String =
         liveNodes[nodeName] ?: seedTitles[nodeName] ?: nodeName
+
+    /** Human-readable preview used by both the directory and category header. */
+    fun subtitle(category: NodeCategory, liveNodes: Map<String, String> = emptyMap()): String =
+        category.nodeNames
+            .asSequence()
+            .distinct()
+            .take(4)
+            .joinToString(" · ") { displayName(it, liveNodes) }
 }

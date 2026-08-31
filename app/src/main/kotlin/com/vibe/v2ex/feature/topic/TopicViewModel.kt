@@ -53,6 +53,8 @@ data class TopicUiState(
     val topic: Topic? = null,
     val topicBlocks: List<ContentBlock> = emptyList(),
     val replies: List<FloorReply> = emptyList(),
+    /** Topic can render while this explains that its reply list is partial. */
+    val replyWarning: String? = null,
     val appends: List<AppendBlock> = emptyList(),
     /** 网页抓取的浏览数（API 不返回）。 */
     val topicViews: Int? = null,
@@ -187,6 +189,11 @@ class TopicViewModel @Inject constructor(
                         topic = detail.topic,
                         replies = if (looksIncomplete) rawReplies else detail.replies,
                         loadedFromOffline = false,
+                        replyWarning = if (looksIncomplete) {
+                            "网络返回的回复少于本地快照，已保留本地较完整版本"
+                        } else {
+                            detail.replyWarning
+                        },
                     )
                     _uiState.update { it.copy(isLoading = false) }
                     historyRepository.record(detail.topic)
@@ -223,7 +230,12 @@ class TopicViewModel @Inject constructor(
         }
     }
 
-    private suspend fun applyDetail(topic: Topic, replies: List<Reply>, loadedFromOffline: Boolean) {
+    private suspend fun applyDetail(
+        topic: Topic,
+        replies: List<Reply>,
+        loadedFromOffline: Boolean,
+        replyWarning: String? = null,
+    ) {
         val (topicBlocks, threaded) = withContext(Dispatchers.Default) {
             val bodyHtml = topic.contentRendered.orEmpty().ifBlank { topic.content.orEmpty() }
             parseContentBlocks(bodyHtml) to threadReplies(replies, topic.authorName)
@@ -234,6 +246,7 @@ class TopicViewModel @Inject constructor(
                 topic = topic,
                 topicBlocks = topicBlocks,
                 replies = threaded,
+                replyWarning = replyWarning,
                 loadedFromOffline = loadedFromOffline,
                 pendingRestoreFloor = initialFloor
                     ?.takeIf { floor -> !initialFloorHandled && floor > 0 && threaded.any { it.floor == floor } }

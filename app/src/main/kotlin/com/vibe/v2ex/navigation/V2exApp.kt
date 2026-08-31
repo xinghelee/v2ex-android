@@ -54,7 +54,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
-import com.vibe.v2ex.designsystem.LocalV2Dark
 import com.vibe.v2ex.feature.account.AccountScreen
 import com.vibe.v2ex.feature.home.HomeScreen
 import com.vibe.v2ex.feature.member.MemberScreen
@@ -63,6 +62,7 @@ import com.vibe.v2ex.feature.profile.FavoritesScreen
 import com.vibe.v2ex.feature.profile.HistoryScreen
 import com.vibe.v2ex.feature.profile.MyPostsScreen
 import com.vibe.v2ex.feature.profile.OfflineListScreen
+import com.vibe.v2ex.feature.nodes.NodeCategoryScreen
 import com.vibe.v2ex.feature.nodes.NodeTopicsScreen
 import com.vibe.v2ex.feature.nodes.NodesScreen
 import com.vibe.v2ex.feature.notifications.NotificationsScreen
@@ -217,7 +217,20 @@ fun V2exApp(
                 )
             }
             composable<Route.Nodes> {
-                NodesScreen(onNodeClick = { name -> navController.navigate(Route.NodeTopics(name)) })
+                NodesScreen(
+                    onNodeClick = { name -> navController.navigate(Route.NodeTopics(name)) },
+                    onCategoryClick = { categoryId ->
+                        navController.navigate(Route.NodeCategory(categoryId))
+                    },
+                )
+            }
+            composable<Route.NodeCategory> { entry ->
+                val route: Route.NodeCategory = entry.toRoute()
+                NodeCategoryScreen(
+                    categoryId = route.categoryId,
+                    onBack = navController::popBackStack,
+                    onNodeClick = { name -> navController.navigate(Route.NodeTopics(name)) },
+                )
             }
             composable<Route.Search> {
                 SearchScreen(
@@ -342,10 +355,9 @@ private fun BottomTabBar(
     modifier: Modifier = Modifier,
     notificationBadgeCount: Int = 0,
 ) {
-    val dark = LocalV2Dark.current
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = if (dark) Color(0xFF1C1C1E) else Color.White,
+        color = MaterialTheme.colorScheme.surface,
     ) {
         Column {
             androidx.compose.material3.HorizontalDivider(

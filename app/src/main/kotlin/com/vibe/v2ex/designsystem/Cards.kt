@@ -19,22 +19,30 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.vibe.v2ex.data.model.Topic
 
-/** 白卡容器 — 设计稿圆角 22。 */
+/** 白卡容器 — 对齐当前 iOS Theme.Metric.cardRadius（24）。 */
 @Composable
 fun V2Card(
     modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(24.dp),
     content: @Composable () -> Unit,
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = shape,
         color = MaterialTheme.colorScheme.surface,
     ) {
         Column { content() }
@@ -56,20 +64,29 @@ fun CardGroupItem(
     position: CardGroupPosition,
     modifier: Modifier = Modifier,
     dividerInset: androidx.compose.ui.unit.Dp = 62.dp,
+    outlined: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val radius = 22.dp
+    val radius = 24.dp
     val shape = when (position) {
         CardGroupPosition.SINGLE -> RoundedCornerShape(radius)
         CardGroupPosition.FIRST -> RoundedCornerShape(topStart = radius, topEnd = radius)
         CardGroupPosition.LAST -> RoundedCornerShape(bottomStart = radius, bottomEnd = radius)
         CardGroupPosition.MIDDLE -> RoundedCornerShape(0.dp)
     }
+    val outlineColor = MaterialTheme.colorScheme.outlineVariant
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surface),
+            .background(MaterialTheme.colorScheme.surface)
+            .then(
+                if (outlined) {
+                    Modifier.groupOutline(position, outlineColor, radius)
+                } else {
+                    Modifier
+                },
+            ),
     ) {
         content()
         if (position == CardGroupPosition.FIRST || position == CardGroupPosition.MIDDLE) {
@@ -79,6 +96,65 @@ fun CardGroupItem(
                 color = MaterialTheme.colorScheme.outlineVariant,
             )
         }
+    }
+}
+
+/** Draw one continuous outside stroke across lazy group rows. A regular border
+ * on every row stacks two horizontal strokes (plus the inset divider), making
+ * seams darker than the 0.5dp iOS hairline. */
+private fun Modifier.groupOutline(
+    position: CardGroupPosition,
+    color: Color,
+    radius: androidx.compose.ui.unit.Dp,
+): Modifier = drawBehind {
+    val strokeWidth = 0.5.dp.toPx()
+    val inset = strokeWidth / 2f
+    val left = inset
+    val right = size.width - inset
+    val top = inset
+    val bottom = size.height - inset
+    val corner = (radius.toPx() - inset).coerceAtLeast(0f)
+    val stroke = Stroke(width = strokeWidth)
+
+    when (position) {
+        CardGroupPosition.SINGLE -> drawRoundRect(
+            color = color,
+            topLeft = Offset(left, top),
+            size = Size((right - left).coerceAtLeast(0f), (bottom - top).coerceAtLeast(0f)),
+            cornerRadius = CornerRadius(corner, corner),
+            style = stroke,
+        )
+
+        CardGroupPosition.FIRST -> drawPath(
+            path = Path().apply {
+                moveTo(left, size.height)
+                lineTo(left, top + corner)
+                quadraticTo(left, top, left + corner, top)
+                lineTo(right - corner, top)
+                quadraticTo(right, top, right, top + corner)
+                lineTo(right, size.height)
+            },
+            color = color,
+            style = stroke,
+        )
+
+        CardGroupPosition.MIDDLE -> {
+            drawLine(color, Offset(left, 0f), Offset(left, size.height), strokeWidth)
+            drawLine(color, Offset(right, 0f), Offset(right, size.height), strokeWidth)
+        }
+
+        CardGroupPosition.LAST -> drawPath(
+            path = Path().apply {
+                moveTo(left, 0f)
+                lineTo(left, bottom - corner)
+                quadraticTo(left, bottom, left + corner, bottom)
+                lineTo(right - corner, bottom)
+                quadraticTo(right, bottom, right, bottom - corner)
+                lineTo(right, 0f)
+            },
+            color = color,
+            style = stroke,
+        )
     }
 }
 
@@ -92,7 +168,7 @@ fun NodePill(title: String, modifier: Modifier = Modifier) {
         maxLines = 1,
         modifier = modifier
             .clip(RoundedCornerShape(7.dp))
-            .background(V2Colors.accentSoft(LocalV2Dark.current))
+            .background(MaterialTheme.colorScheme.primaryContainer)
             .padding(horizontal = 8.dp, vertical = 3.dp),
     )
 }
@@ -268,17 +344,18 @@ fun CardTopicRow(
     }
 }
 
-/** 分区小标题（rgba(60,60,67,0.6)、13sp、左缩进 32）。 */
+/** 分区标题：当前 iOS 用 13sp semibold body ink 承担页面骨架。 */
 @Composable
 fun SectionHeader(title: String, modifier: Modifier = Modifier, trailing: (@Composable () -> Unit)? = null) {
     Row(
-        modifier = modifier.fillMaxWidth().padding(start = 32.dp, end = 16.dp, bottom = 7.dp),
+        modifier = modifier.fillMaxWidth().padding(start = 30.dp, end = 30.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = title,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
         trailing?.invoke()

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,20 +20,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Article
-import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.automirrored.outlined.Article
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.CalendarToday
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -40,25 +44,34 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vibe.v2ex.data.model.Member
 import com.vibe.v2ex.data.model.Topic
+import com.vibe.v2ex.data.repository.HistoryRepository
 import com.vibe.v2ex.designsystem.Avatar
 import com.vibe.v2ex.designsystem.GlassCircleButton
-import com.vibe.v2ex.designsystem.LocalV2Dark
 import com.vibe.v2ex.designsystem.SectionHeader
 import com.vibe.v2ex.designsystem.V2Card
-import com.vibe.v2ex.designsystem.V2Colors
 import com.vibe.v2ex.designsystem.relativeTimeText
 import com.vibe.v2ex.designsystem.topicRowTitle
 import com.vibe.v2ex.feature.home.TAB_BAR_CLEARANCE
+import java.text.NumberFormat
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.util.Locale
+import kotlin.math.max
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,363 +88,725 @@ fun ProfileScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // 每次回到本页（含从「账号」返回后）重新检查 Token 并刷新资料。
+    // 每次回到本页（含从「账号」返回后）重新检查凭证并刷新资料。
     LaunchedEffect(Unit) { viewModel.refresh() }
 
-    Column(
+    PullToRefreshBox(
+        isRefreshing = uiState.isLoading,
+        onRefresh = viewModel::refresh,
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .verticalScroll(rememberScrollState()),
+            .background(MaterialTheme.colorScheme.background),
     ) {
-        // 大标题 + 玻璃设置圆钮（设计稿 08 顶栏）
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "我的",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.weight(1f),
-            )
-            GlassCircleButton(onClick = onSettingsClick) {
-                Icon(
-                    Icons.Filled.Settings,
-                    contentDescription = "外观与阅读设置",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(19.dp),
-                )
-            }
-        }
-
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .verticalScroll(rememberScrollState()),
         ) {
-            when {
-                uiState.isConnected && uiState.member != null -> {
-                    MemberHeaderCard(
-                        member = uiState.member!!,
-                        uiState = uiState,
-                        onFavoritesClick = onFavoritesClick,
-                        onHistoryClick = onHistoryClick,
-                        onModerationClick = onModerationClick,
-                    )
-                }
-                uiState.isConnected && uiState.isLoading -> {
-                    V2Card {
-                        Row(
-                            modifier = Modifier.padding(18.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("正在加载资料…", style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
-                uiState.isConnected -> {
-                    V2Card {
-                        Text(
-                            text = uiState.error?.let { "资料加载失败：$it" } ?: "资料加载失败，下拉或重进本页重试",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(18.dp),
-                        )
-                    }
-                }
-                else -> {
-                    NotConnectedCard(onLoginClick = onLoginClick)
-                }
+            ProfileTopBar(onSettingsClick)
+
+            Spacer(Modifier.height(2.dp))
+            ProfileAccountSection(
+                uiState = uiState,
+                onLoginClick = onLoginClick,
+                onRetry = viewModel::refresh,
+            )
+
+            Spacer(Modifier.height(16.dp))
+            WeeklyFootprintSection(uiState.weeklyHistory)
+
+            Spacer(Modifier.height(16.dp))
+            LibrarySection(
+                uiState = uiState,
+                onFavoritesClick = onFavoritesClick,
+                onHistoryClick = onHistoryClick,
+                onOfflineClick = onOfflineClick,
+                onMyPostsClick = onMyPostsClick,
+            )
+
+            Spacer(Modifier.height(16.dp))
+            ManagementSection(
+                moderationCount = uiState.moderationCount,
+                onModerationClick = onModerationClick,
+            )
+
+            if (uiState.recentTopics.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                RecentTopicsSection(
+                    topics = uiState.recentTopics.take(RECENT_TOPICS_LIMIT),
+                    onTopicClick = onTopicClick,
+                )
             }
 
-            // iOS 分组列表（设计稿 08 第二张卡 + iOS collectionsGrid 的全部入口）
-            V2Card {
-                SettingsListRow(
-                    iconColor = Color(0xFF1C7C6B),
-                    icon = Icons.Filled.Person,
-                    title = "账号",
-                    onClick = onLoginClick,
-                    showChevron = true,
-                )
-                RowDivider()
-                SettingsListRow(
-                    iconColor = V2Colors.Amber,
-                    icon = Icons.Filled.Star,
-                    title = "我的收藏",
-                    detail = "${uiState.favoriteCount}",
-                    onClick = onFavoritesClick,
-                    showChevron = true,
-                )
-                RowDivider()
-                SettingsListRow(
-                    iconColor = Color(0xFF5A7A9E),
-                    icon = Icons.Filled.History,
-                    title = "浏览历史",
-                    detail = "${uiState.historyCount}",
-                    onClick = onHistoryClick,
-                    showChevron = true,
-                )
-                RowDivider()
-                SettingsListRow(
-                    iconColor = Color(0xFFC77700),
-                    icon = Icons.Filled.Download,
-                    title = "稍后读 / 离线",
-                    detail = "${uiState.offlineCount}",
-                    onClick = onOfflineClick,
-                    showChevron = true,
-                )
-                RowDivider()
-                SettingsListRow(
-                    iconColor = Color(0xFF3A8E5A),
-                    icon = Icons.AutoMirrored.Filled.Article,
-                    title = "我的话题",
-                    detail = "${uiState.recentTopics.size}",
-                    onClick = onMyPostsClick,
-                    showChevron = true,
-                )
-                RowDivider()
-                SettingsListRow(
-                    iconColor = Color(0xFF8E5A9E),
-                    icon = Icons.Filled.Block,
-                    title = "屏蔽的关键词与用户",
-                    detail = "${uiState.moderationCount}",
-                    onClick = onModerationClick,
-                    showChevron = true,
-                )
-            }
+            Spacer(Modifier.height(TAB_BAR_CLEARANCE))
         }
-
-        if (uiState.recentTopics.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(21.dp))
-            SectionHeader("最近发布")
-            V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
-                uiState.recentTopics.take(5).forEachIndexed { index, topic ->
-                    if (index > 0) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 16.dp),
-                            thickness = 0.5.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant,
-                        )
-                    }
-                    RecentTopicRow(topic, onClick = { onTopicClick(topic.id) })
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(TAB_BAR_CLEARANCE))
     }
 }
 
-/** 会员头卡（设计稿 08）：60dp 渐变身份方块 + 名字 + 简介 + 三块统计瓦片（可点进对应页）。 */
 @Composable
-private fun MemberHeaderCard(
-    member: Member,
+private fun ProfileTopBar(onSettingsClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = "我的",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.align(Alignment.Center),
+        )
+        GlassCircleButton(
+            onClick = onSettingsClick,
+            modifier = Modifier.align(Alignment.CenterEnd),
+        ) {
+            Icon(
+                Icons.Filled.Settings,
+                contentDescription = "外观与阅读设置",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(19.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileAccountSection(
     uiState: ProfileUiState,
-    onFavoritesClick: () -> Unit = {},
-    onHistoryClick: () -> Unit = {},
-    onModerationClick: () -> Unit = {},
+    onLoginClick: () -> Unit,
+    onRetry: () -> Unit,
 ) {
-    val dark = LocalV2Dark.current
-    V2Card {
+    when {
+        uiState.isConnected && uiState.member != null -> MemberHeaderCard(uiState.member)
+        uiState.isConnected && uiState.isLoading -> ProfileLoadingCard()
+        uiState.isConnected && uiState.error != null -> ProfileErrorCard(uiState.error, onRetry)
+        uiState.isConnected -> ProfileLoadingCard()
+        else -> GuestCard(onLoginClick)
+    }
+}
+
+/** 当前 iOS 账号卡：64dp 身份方块、连接状态、会员信息，以及用发丝线隔开的完整简介。 */
+@Composable
+private fun MemberHeaderCard(member: Member) {
+    val usesLargeText = LocalDensity.current.fontScale >= LARGE_TEXT_FONT_SCALE
+    V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
         Column(
             modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(15.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (member.avatarUrl != null) {
-                    Avatar(username = member.username, url = member.avatarUrl, size = 60.dp)
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(60.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(Color(0xFF1C7C6B), Color(0xFF14584D)),
-                                ),
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.semantics(mergeDescendants = true) {},
+            ) {
+                Avatar(
+                    username = member.username,
+                    url = member.avatarUrl,
+                    size = 64.dp,
+                    modifier = Modifier.clearAndSetSemantics {},
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    if (usesLargeText) {
                         Text(
-                            text = member.username.take(2).lowercase().ifBlank { "?" },
-                            color = Color.White,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            text = member.username,
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
+                        ConnectedLabel()
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            Text(
+                                text = member.username,
+                                fontSize = 21.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = (-0.5).sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            ConnectedLabel()
+                        }
                     }
-                }
-                Spacer(modifier = Modifier.width(14.dp))
-                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = member.username,
-                        fontSize = 22.sp,
+                        text = membershipLine(member),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            profileBio(member)?.let { bio ->
+                HorizontalDivider(
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                )
+                Text(
+                    text = bio,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectedLabel() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Filled.CheckCircle,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(13.dp),
+        )
+        Text(
+            text = "已连接",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+private fun membershipLine(member: Member): String {
+    val formatter = NumberFormat.getIntegerInstance()
+    val clauses = buildList {
+        member.id?.let { add("第 ${formatter.format(it)} 号会员") }
+        member.created?.let { created ->
+            val days = ((System.currentTimeMillis() / 1_000 - created) / 86_400).coerceAtLeast(0)
+            add("加入 ${formatter.format(days)} 天")
+        }
+    }
+    return clauses.ifEmpty { listOf("V2EX 会员") }.joinToString(" · ")
+}
+
+private fun profileBio(member: Member): String? =
+    listOfNotNull(member.bio, member.tagline)
+        .map { it.trim() }
+        .firstOrNull(String::isNotEmpty)
+
+@Composable
+private fun GuestCard(onLoginClick: () -> Unit) {
+    V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = "连接 V2EX 账号",
+                    onClick = onLoginClick,
+                )
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "访客模式，连接 V2EX 账号。打开账号设置，选择网页登录或 Access Token"
+                }
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(15.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PersonAdd,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = "访客模式",
+                        fontSize = 21.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = (-0.5).sp,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    val subtitle = memberSubtitle(member)
-                    if (subtitle.isNotBlank()) {
-                        Text(
-                            text = subtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 3.dp),
-                        )
-                    }
+                    Text(
+                        text = "浏览不受影响；连接账号后可按需启用回复、通知与个人内容。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
-            val bio = listOfNotNull(member.bio, member.tagline).firstOrNull { it.isNotBlank() }
-            if (bio != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = bio,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (dark) MaterialTheme.colorScheme.onSurfaceVariant else V2Colors.SecondaryLabelLight,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    text = "连接 V2EX 账号",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
                 )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatTile(
-                    number = "${uiState.favoriteCount}",
-                    label = "收藏",
-                    modifier = Modifier.weight(1f),
-                    onClick = onFavoritesClick,
-                )
-                StatTile(
-                    number = "${uiState.historyCount}",
-                    label = "历史",
-                    modifier = Modifier.weight(1f),
-                    onClick = onHistoryClick,
-                )
-                StatTile(
-                    number = "${uiState.moderationCount}",
-                    label = "屏蔽",
-                    numberColor = V2Colors.Amber,
-                    modifier = Modifier.weight(1f),
-                    onClick = onModerationClick,
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    text = "→",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
         }
     }
 }
 
-/** 统计瓦片：canvas 底 圆角 14，数字 19sp/700 + 12sp muted 标签。 */
 @Composable
-private fun StatTile(
-    number: String,
-    label: String,
-    modifier: Modifier = Modifier,
-    numberColor: Color = MaterialTheme.colorScheme.onSurface,
-    onClick: (() -> Unit)? = null,
-) {
-    val dark = LocalV2Dark.current
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (dark) Color(0xFF2C2C2E) else V2Colors.CanvasLight)
-            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
-            .padding(10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+private fun ProfileLoadingCard() {
+    V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 100.dp)
+                .padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "正在加载个人资料…",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileErrorCard(error: String?, onRetry: () -> Unit) {
+    V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "没能加载个人资料",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "网络或接口暂时不可用，你的登录状态没有改变。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            error?.takeIf(String::isNotBlank)?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .clickable(
+                        role = Role.Button,
+                        onClickLabel = "重试加载个人资料",
+                        onClick = onRetry,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "重试",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeeklyFootprintSection(days: List<ProfileHistoryDay>) {
+    val normalizedDays = days.takeIf { it.size == 7 } ?: ProfileHistoryDay.emptyWeek()
+    val weeklyCount = normalizedDays.sumOf(ProfileHistoryDay::count)
+    SectionHeader(
+        title = "本周社区足迹",
+        trailing = {
+            if (weeklyCount > 0) {
+                Text(
+                    text = "$weeklyCount 个话题",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+    )
+    V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            WeeklyHistorySummary(weeklyCount)
+            WeeklyHistoryChart(normalizedDays)
+            Text(
+                text = "同一话题按最近一次阅读日期计入，仅使用保存在本机的浏览历史。",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeeklyHistorySummary(count: Int) {
+    val usesLargeText = LocalDensity.current.fontScale >= LARGE_TEXT_FONT_SCALE
+    if (usesLargeText) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = "$count 个话题",
+                style = MaterialTheme.typography.headlineMedium,
+                color = if (count == 0) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+            )
+            HistoryPeriodLabel(styleForLargeText = true)
+        }
+    } else {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Text(
+                text = "$count",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (count == 0) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "个话题",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.weight(1f))
+            HistoryPeriodLabel(styleForLargeText = false)
+        }
+    }
+}
+
+@Composable
+private fun HistoryPeriodLabel(styleForLargeText: Boolean) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Text(
-            text = number,
-            fontSize = 19.sp,
-            fontWeight = FontWeight.Bold,
-            color = numberColor,
+        Icon(
+            imageVector = Icons.Outlined.CalendarToday,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(if (styleForLargeText) 18.dp else 14.dp),
         )
         Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Normal,
+            text = "过去 7 天",
+            style = if (styleForLargeText) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
-/** "V2EX 第 {id} 号会员 · 加入 {days} 天" — either clause omitted when its source field is null. */
-private fun memberSubtitle(member: Member): String {
-    val clauses = buildList {
-        member.id?.let { add("V2EX 第 $it 号会员") }
-        member.created?.let { created ->
-            val days = ((System.currentTimeMillis() / 1000 - created) / 86_400).coerceAtLeast(0)
-            add("加入 $days 天")
-        }
-    }
-    return clauses.joinToString(" · ")
-}
-
 @Composable
-private fun NotConnectedCard(onLoginClick: () -> Unit) {
-    V2Card {
-        Column(
-            modifier = Modifier
-                .clickable(onClick = onLoginClick)
-                .padding(18.dp),
+private fun WeeklyHistoryChart(days: List<ProfileHistoryDay>) {
+    val usesLargeText = LocalDensity.current.fontScale >= LARGE_TEXT_FONT_SCALE
+    val today = LocalDate.now()
+    val accessibilityValue = days.joinToString("，") { day ->
+        val date = if (day.date == today) {
+            "今天"
+        } else {
+            "${day.date.monthValue}月${day.date.dayOfMonth}日${weekdayWide(day.date)}"
+        }
+        "$date ${day.count} 个话题"
+    }
+    val chartModifier = Modifier
+        .fillMaxWidth()
+        .clearAndSetSemantics {
+            contentDescription = "过去七天阅读足迹。$accessibilityValue"
+        }
+
+    if (usesLargeText) {
+        Column(modifier = chartModifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            days.forEach { day ->
+                val isToday = day.date == today
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = if (isToday) "今天" else weekdayWide(day.date),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = "${day.count} 个话题",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = if (day.count == 0) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+        }
+    } else {
+        val maximum = max(days.maxOfOrNull(ProfileHistoryDay::count) ?: 0, 1)
+        Row(
+            modifier = chartModifier.height(96.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = "未连接账号",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = "前往 账号 登录网页会话，或设置 Personal Access Token。连接后可查看个人资料、我的话题与通知，并在 app 内直接回复、收藏。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp),
-            )
+            days.forEach { day ->
+                val isToday = day.date == today
+                val barHeight = if (day.count == 0) {
+                    4.dp
+                } else {
+                    max(8f, 48f * day.count / maximum).dp
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = "${day.count}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = if (day.count == 0) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(barHeight)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(
+                                when {
+                                    day.count == 0 -> MaterialTheme.colorScheme.outlineVariant
+                                    isToday -> MaterialTheme.colorScheme.primary
+                                    else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.48f)
+                                },
+                            ),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = weekdayNarrow(day.date),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
 
-/** iOS 设置行：30dp 彩色圆角 8 图标方块 + 17sp 标题 + 右 detail/chevron，min 52dp。 */
 @Composable
-private fun SettingsListRow(
-    iconColor: Color,
-    icon: ImageVector,
-    title: String,
-    detail: String? = null,
-    onClick: (() -> Unit)? = null,
-    showChevron: Boolean = true,
+private fun LibrarySection(
+    uiState: ProfileUiState,
+    onFavoritesClick: () -> Unit,
+    onHistoryClick: () -> Unit,
+    onOfflineClick: () -> Unit,
+    onMyPostsClick: () -> Unit,
 ) {
-    val rowModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    SectionHeader(
+        title = "我的空间",
+        trailing = {
+            if (uiState.libraryCount > 0) {
+                Text(
+                    text = "${uiState.libraryCount} 项",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+    )
+    V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+        LibraryRow(
+            icon = Icons.Outlined.StarOutline,
+            count = uiState.favoriteCount,
+            title = "收藏",
+            caption = "喜欢的话题",
+            onClick = onFavoritesClick,
+        )
+        InsetDivider(68.dp)
+        LibraryRow(
+            icon = Icons.Outlined.History,
+            count = uiState.historyCount,
+            title = "浏览历史",
+            caption = "最近 ${HistoryRepository.RETENTION_DAYS} 天",
+            onClick = onHistoryClick,
+        )
+        InsetDivider(68.dp)
+        LibraryRow(
+            icon = Icons.Outlined.BookmarkBorder,
+            count = uiState.offlineCount,
+            title = "稍后读",
+            caption = if (uiState.offlineCount == 0) "离线资料库" else formatByteSize(uiState.offlineByteSize),
+            onClick = onOfflineClick,
+        )
+        InsetDivider(68.dp)
+        LibraryRow(
+            icon = Icons.AutoMirrored.Outlined.Article,
+            count = uiState.recentTopics.size,
+            title = "我的话题",
+            caption = if (uiState.isConnected) "最近发布" else "连接后查看",
+            onClick = onMyPostsClick,
+        )
+    }
+}
+
+@Composable
+private fun LibraryRow(
+    icon: ImageVector,
+    count: Int,
+    title: String,
+    caption: String,
+    onClick: () -> Unit,
+) {
     Row(
-        modifier = rowModifier
+        modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp)
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .heightIn(min = 68.dp)
+            .clickable(role = Role.Button, onClickLabel = title, onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "$title，$count 项，$caption"
+            }
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Box(
             modifier = Modifier
-                .size(30.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(iconColor),
+                .size(36.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
-        }
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        if (detail != null) {
-            Text(
-                text = detail,
-                fontSize = 15.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
             )
         }
-        if (showChevron) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = caption,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            text = "$count",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = FontFamily.Monospace,
+            color = if (count == 0) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+        )
+        Icon(
+            imageVector = Icons.Filled.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+@Composable
+private fun ManagementSection(
+    moderationCount: Int,
+    onModerationClick: () -> Unit,
+) {
+    SectionHeader(title = "管理")
+    V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 58.dp)
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = "内容与屏蔽",
+                    onClick = onModerationClick,
+                )
+                .semantics(mergeDescendants = true) {
+                    contentDescription = if (moderationCount == 0) {
+                        "内容与屏蔽，关键词、用户与举报记录"
+                    } else {
+                        "内容与屏蔽，$moderationCount 条规则正在生效"
+                    }
+                }
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
             Icon(
-                Icons.Filled.ChevronRight,
+                imageVector = Icons.Outlined.VerifiedUser,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = "内容与屏蔽",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = if (moderationCount == 0) {
+                        "关键词、用户与举报记录"
+                    } else {
+                        "$moderationCount 条规则正在生效"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(20.dp),
@@ -440,28 +815,50 @@ private fun SettingsListRow(
     }
 }
 
-/** 行间分割线（inset 58 = 16 + 30 + 12）。 */
 @Composable
-private fun RowDivider() {
+private fun RecentTopicsSection(
+    topics: List<Topic>,
+    onTopicClick: (Long) -> Unit,
+) {
+    SectionHeader(
+        title = "最近发布",
+        trailing = {
+            Text(
+                text = "${topics.size} 篇",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+    )
+    V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+        topics.forEachIndexed { index, topic ->
+            if (index > 0) InsetDivider(16.dp)
+            RecentTopicRow(topic, onClick = { onTopicClick(topic.id) })
+        }
+    }
+}
+
+@Composable
+private fun InsetDivider(start: Dp) {
     HorizontalDivider(
-        modifier = Modifier.padding(start = 58.dp),
+        modifier = Modifier.padding(start = start),
         thickness = 0.5.dp,
         color = MaterialTheme.colorScheme.outlineVariant,
     )
 }
 
 @Composable
-private fun RecentTopicRow(topic: Topic, onClick: () -> Unit = {}) {
+private fun RecentTopicRow(topic: Topic, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClickLabel = "打开话题", onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 13.dp),
     ) {
         Text(
             text = topic.title,
             style = MaterialTheme.typography.topicRowTitle,
-            maxLines = 2,
+            maxLines = 3,
             overflow = TextOverflow.Ellipsis,
         )
         val meta = listOfNotNull(
@@ -480,3 +877,31 @@ private fun RecentTopicRow(topic: Topic, onClick: () -> Unit = {}) {
         }
     }
 }
+
+private fun weekdayNarrow(date: LocalDate): String = when (date.dayOfWeek) {
+    DayOfWeek.MONDAY -> "一"
+    DayOfWeek.TUESDAY -> "二"
+    DayOfWeek.WEDNESDAY -> "三"
+    DayOfWeek.THURSDAY -> "四"
+    DayOfWeek.FRIDAY -> "五"
+    DayOfWeek.SATURDAY -> "六"
+    DayOfWeek.SUNDAY -> "日"
+}
+
+private fun weekdayWide(date: LocalDate): String = "星期${weekdayNarrow(date)}"
+
+private fun formatByteSize(bytes: Long): String {
+    val locale = Locale.getDefault()
+    return when {
+        bytes >= GIB -> String.format(locale, "%.1f GB", bytes / GIB)
+        bytes >= MIB -> String.format(locale, "%.1f MB", bytes / MIB)
+        bytes >= KIB -> String.format(locale, "%.1f KB", bytes / KIB)
+        else -> "$bytes B"
+    }
+}
+
+private const val LARGE_TEXT_FONT_SCALE = 1.3f
+private const val RECENT_TOPICS_LIMIT = 4
+private const val KIB = 1_024.0
+private const val MIB = 1_048_576.0
+private const val GIB = 1_073_741_824.0

@@ -10,6 +10,7 @@ sealed interface Route {
 
     @Serializable data class Topic(val topicId: Long, val initialFloor: Int? = null) : Route
     @Serializable data class NodeTopics(val nodeName: String) : Route
+    @Serializable data class NodeCategory(val categoryId: String) : Route
     @Serializable data object Search : Route
     @Serializable data object Login : Route
     @Serializable data class Write(val topicId: Long? = null) : Route

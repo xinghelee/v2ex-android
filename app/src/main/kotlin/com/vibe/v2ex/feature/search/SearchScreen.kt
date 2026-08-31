@@ -366,7 +366,7 @@ private fun ScopeChipsRow(
                 fontSize = 14.sp,
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                 color = when {
-                    isSelected -> Color.White
+                    isSelected -> MaterialTheme.colorScheme.onPrimary
                     dark -> MaterialTheme.colorScheme.onSurfaceVariant
                     else -> V2Colors.SecondaryLabelLight
                 },

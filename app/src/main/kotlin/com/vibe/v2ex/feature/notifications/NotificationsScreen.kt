@@ -167,7 +167,7 @@ private fun FilterChips(uiState: NotificationsUiState, onSelect: (NotificationFi
                 fontSize = 14.sp,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 color = when {
-                    selected -> Color.White
+                    selected -> MaterialTheme.colorScheme.onPrimary
                     dark -> MaterialTheme.colorScheme.onSurfaceVariant
                     else -> Color(0xFF3C3C43)
                 },

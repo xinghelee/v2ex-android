@@ -1,17 +1,20 @@
 package com.vibe.v2ex.feature.nodes
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,27 +28,26 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Coffee
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.PhoneIphone
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.RemoveCircle
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Sell
-import androidx.compose.material.icons.filled.SportsEsports
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Tag
-import androidx.compose.material.icons.filled.Work
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -59,10 +61,12 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -70,7 +74,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil3.compose.AsyncImage
 import com.vibe.v2ex.data.model.Node
 import com.vibe.v2ex.data.nodes.NodeCatalog
 import com.vibe.v2ex.data.nodes.NodeCategory
@@ -78,15 +81,15 @@ import com.vibe.v2ex.designsystem.CardGroupItem
 import com.vibe.v2ex.designsystem.LocalV2Dark
 import com.vibe.v2ex.designsystem.SectionHeader
 import com.vibe.v2ex.designsystem.V2Card
-import com.vibe.v2ex.designsystem.V2Colors
 import com.vibe.v2ex.designsystem.cardGroupPosition
-import com.vibe.v2ex.designsystem.identityColor
+import com.vibe.v2ex.designsystem.htmlToPlainText
 import com.vibe.v2ex.feature.home.TAB_BAR_CLEARANCE
 import java.util.Locale
 
 @Composable
 fun NodesScreen(
     onNodeClick: (String) -> Unit,
+    onCategoryClick: (String) -> Unit,
     viewModel: NodesViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -99,12 +102,28 @@ fun NodesScreen(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
     ) {
-        Text(
-            text = "节点",
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 8.dp, top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "节点",
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { editMode = !editMode }) {
+                Icon(
+                    imageVector = if (editMode) Icons.Filled.Check else Icons.Filled.Edit,
+                    contentDescription = if (editMode) "完成编辑" else "编辑关注节点",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(21.dp),
+                )
+            }
+        }
+
         NodeSearchField(
             value = uiState.query,
             onValueChange = viewModel::onQueryChange,
@@ -115,50 +134,74 @@ fun NodesScreen(
             focusRequester = searchFocusRequester,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
         )
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = 6.dp, bottom = TAB_BAR_CLEARANCE),
         ) {
             if (uiState.query.isNotBlank()) {
-                searchResultItems(results = uiState.searchResults, onNodeClick = onNodeClick)
+                searchDirectoryContent(
+                    uiState = uiState,
+                    onNodeClick = onNodeClick,
+                    onRetry = viewModel::refresh,
+                )
             } else {
                 item(key = "followed-header") {
                     SectionHeader(
                         title = "我关注的",
-                        trailing = {
-                            Text(
-                                text = if (editMode) "完成" else "编辑",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.clickable { editMode = !editMode },
-                            )
+                        trailing = uiState.followedNames.size.takeIf { it > 0 }?.let { count ->
+                            {
+                                Text(
+                                    text = "$count 个",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         },
                     )
                 }
-                item(key = "followed-chips") {
-                    FollowedNodesCard(
+                item(key = "followed-grid") {
+                    FollowedNodesGrid(
                         uiState = uiState,
                         editMode = editMode,
                         onRemoveFollowed = viewModel::removeFollowed,
                         onNodeClick = onNodeClick,
-                        onAddClick = { searchFocusRequester.requestFocus() },
+                        onAddClick = {
+                            viewModel.onQueryChange("")
+                            searchFocusRequester.requestFocus()
+                        },
                     )
                 }
+
+                if (uiState.isLoading && uiState.allNodes.isEmpty()) {
+                    item(key = "directory-loading") { DirectoryLoadingRow() }
+                } else if (uiState.error != null && uiState.allNodes.isEmpty()) {
+                    item(key = "directory-error") {
+                        DirectoryErrorCard(
+                            message = "实时节点资料加载失败，分类仍可浏览",
+                            onRetry = viewModel::refresh,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                }
+
                 item(key = "categories-header") {
                     SectionHeader(title = "全部分类", modifier = Modifier.padding(top = 22.dp))
                 }
                 item(key = "categories-card") {
-                    CategoriesCard(uiState = uiState, onNodeClick = onNodeClick)
+                    CategoriesCard(
+                        uiState = uiState,
+                        onCategoryClick = onCategoryClick,
+                    )
                 }
             }
         }
     }
 }
 
-/** 设计稿搜索框：rgba(118,118,128,0.12) 底、圆角 12、放大镜 + 16sp 文字，无外框。 */
+/** iOS-style search field: subtle neutral fill, 12dp radius and no visible outline. */
 @Composable
 private fun NodeSearchField(
     value: String,
@@ -181,7 +224,9 @@ private fun NodeSearchField(
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-        modifier = modifier.focusRequester(focusRequester),
+        modifier = modifier
+            .focusRequester(focusRequester)
+            .semantics { contentDescription = "搜索节点" },
         decorationBox = { innerTextField ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -214,184 +259,307 @@ private fun NodeSearchField(
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FollowedNodesCard(
+private fun FollowedNodesGrid(
     uiState: NodesUiState,
     editMode: Boolean,
     onRemoveFollowed: (String) -> Unit,
     onNodeClick: (String) -> Unit,
     onAddClick: () -> Unit,
 ) {
-    V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
-        if (uiState.followedNames.isEmpty()) {
-            Text(
-                text = "还没有关注的节点，点下方分类或搜索添加",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(14.dp),
-            )
-        } else {
-            FlowRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                uiState.followedNames.forEach { name ->
-                    FollowedNodeChip(
-                        name = name,
-                        title = uiState.displayTitle(name),
-                        avatarUrl = uiState.avatarUrl(name),
-                        editMode = editMode,
-                        onClick = {
-                            if (editMode) onRemoveFollowed(name) else onNodeClick(name)
-                        },
-                    )
+    val showAddCard = !editMode || uiState.followedNames.isEmpty()
+    val cellCount = uiState.followedNames.size + if (showAddCard) 1 else 0
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        val columnCount = if (maxWidth >= 600.dp) 4 else 2
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            for (rowStart in 0 until cellCount step columnCount) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    repeat(columnCount) { column ->
+                        val index = rowStart + column
+                        Box(modifier = Modifier.weight(1f)) {
+                            when {
+                                index < uiState.followedNames.size -> {
+                                    val name = uiState.followedNames[index]
+                                    key("followed-$name") {
+                                        FollowedNodeCard(
+                                            name = name,
+                                            title = uiState.displayTitle(name),
+                                            node = uiState.node(name),
+                                            editMode = editMode,
+                                            onRemove = { onRemoveFollowed(name) },
+                                            onClick = { onNodeClick(name) },
+                                        )
+                                    }
+                                }
+
+                                index == uiState.followedNames.size && showAddCard -> {
+                                    key("add-followed-node") {
+                                        AddFollowedNodeCard(onClick = onAddClick)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                AddNodeChip(onClick = onAddClick)
             }
         }
     }
 }
 
-/** 关注 chip：canvas 底圆角 13，20dp 节点头像（无图退回字母方块）+ 14sp 标题；编辑态尾随小 ✕。 */
 @Composable
-private fun FollowedNodeChip(
+private fun FollowedNodeCard(
     name: String,
     title: String,
-    avatarUrl: String?,
+    node: Node?,
     editMode: Boolean,
+    onRemove: () -> Unit,
     onClick: () -> Unit,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    val summary = node?.header
+        ?.let(::htmlToPlainText)
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+        ?: "/go/$name"
+    val topicSummary = node?.topics?.let { "${String.format(Locale.US, "%,d", it)} 个话题" }
+        ?: "正在同步资料"
+    val clickModifier = if (editMode) {
+        Modifier
+    } else {
+        Modifier
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = "打开 $title 节点，$summary，$topicSummary" }
+    }
+
+    Surface(
         modifier = Modifier
-            .clip(RoundedCornerShape(13.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onClick)
-            .padding(start = 7.dp, end = 11.dp, top = 6.dp, bottom = 6.dp),
+            .fillMaxWidth()
+            .heightIn(min = 142.dp)
+            .then(clickModifier),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        if (avatarUrl != null) {
-            AsyncImage(
-                model = avatarUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(RoundedCornerShape(6.dp)),
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(identityColor(name)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = title.take(1),
-                    color = Color.White,
-                    style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.Top) {
+                NodeIdentitySquare(
+                    name = name,
+                    title = title,
+                    avatarUrl = node?.avatarUrl,
+                    size = 34.dp,
+                    transparentFallback = true,
                 )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (editMode) {
+                    IconButton(
+                        onClick = onRemove,
+                        modifier = Modifier.size(44.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.RemoveCircle,
+                            contentDescription = "取消关注 $title",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(19.dp),
+                        )
+                    }
+                }
             }
-        }
-        Spacer(Modifier.width(7.dp))
-        // 不继承默认 bodyLarge 的 24sp 行高 — 否则 14sp 的字在行框里下沉。
-        Text(
-            text = title,
-            style = TextStyle(
-                fontSize = 14.sp,
-                lineHeight = 18.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
-            ),
-        )
-        if (editMode) {
-            Spacer(Modifier.width(5.dp))
-            Icon(
-                Icons.Filled.Close,
-                contentDescription = "取消关注 $title",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(13.dp),
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 36.dp),
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (node?.topics != null) Icons.Filled.ChatBubbleOutline else Icons.Filled.Sync,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(13.dp),
+                )
+                Text(
+                    text = topicSummary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 5.dp),
+                )
+                Spacer(Modifier.weight(1f))
+                if (!editMode) {
+                    Icon(
+                        imageVector = Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
         }
     }
 }
 
-/** 「+ 添加」chip：1dp 虚线边、透明底、muted 文字，点击聚焦搜索框。 */
 @Composable
-private fun AddNodeChip(onClick: () -> Unit) {
+private fun AddFollowedNodeCard(onClick: () -> Unit) {
     val borderColor = MaterialTheme.colorScheme.outline
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
         modifier = Modifier
-            .clip(RoundedCornerShape(13.dp))
-            .clickable(onClick = onClick)
+            .fillMaxWidth()
+            .heightIn(min = 142.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics {
+                role = Role.Button
+                contentDescription = "添加关注节点，聚焦节点搜索"
+            }
             .drawBehind {
                 drawRoundRect(
                     color = borderColor,
                     style = Stroke(
                         width = 1.dp.toPx(),
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f)),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f)),
                     ),
-                    cornerRadius = CornerRadius(13.dp.toPx()),
+                    cornerRadius = CornerRadius(18.dp.toPx()),
                 )
             }
-            .padding(horizontal = 11.dp, vertical = 6.dp),
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        Box(modifier = Modifier.size(34.dp), contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
         Text(
-            text = "+ 添加",
-            style = TextStyle(
-                fontSize = 14.sp,
-                lineHeight = 18.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            ),
+            text = "添加关注",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
         )
+        Text(
+            text = "搜索全部节点",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun DirectoryLoadingRow() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+        Text(
+            text = "正在同步实时节点资料",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 10.dp),
+        )
+    }
+}
+
+@Composable
+private fun DirectoryErrorCard(
+    message: String,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    V2Card(modifier = modifier.padding(horizontal = 16.dp)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            Button(onClick = onRetry, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                Text("重试")
+            }
+        }
     }
 }
 
 @Composable
 private fun CategoriesCard(
     uiState: NodesUiState,
-    onNodeClick: (String) -> Unit,
+    onCategoryClick: (String) -> Unit,
 ) {
-    V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
-        val categories = NodeCatalog.categories
-        categories.forEachIndexed { index, category ->
-            CategoryRow(
-                category = category,
-                uiState = uiState,
-                // mirrors iOS：分类行直接进该分类第一个节点的节点页。
-                onClick = { category.nodeNames.firstOrNull()?.let(onNodeClick) },
-            )
-            if (index != categories.lastIndex) {
-                HorizontalDivider(
-                    modifier = Modifier.padding(start = 58.dp),
-                    thickness = 0.5.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                )
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val columnCount = if (maxWidth >= 600.dp) 2 else 1
+        V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+            for (rowStart in NodeCatalog.categories.indices step columnCount) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min),
+                ) {
+                    repeat(columnCount) { column ->
+                        val index = rowStart + column
+                        Box(modifier = Modifier.weight(1f)) {
+                            NodeCatalog.categories.getOrNull(index)?.let { category ->
+                                CategoryRow(
+                                    category = category,
+                                    uiState = uiState,
+                                    onClick = { onCategoryClick(category.id) },
+                                )
+                            }
+                        }
+                        if (
+                            column < columnCount - 1 &&
+                            rowStart + column + 1 < NodeCatalog.categories.size
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .width(0.5.dp)
+                                    .background(MaterialTheme.colorScheme.outlineVariant),
+                            )
+                        }
+                    }
+                }
+                if (rowStart + columnCount < NodeCatalog.categories.size) {
+                    HorizontalDivider(
+                        modifier = if (columnCount == 1) Modifier.padding(start = 60.dp) else Modifier,
+                        thickness = 0.5.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+                }
             }
         }
     }
 }
 
-/** 分类图标映射（对应 iOS SF Symbols：code / lightbulb.max / cup.and.saucer / gamecontroller / apple.logo / externaldrive / briefcase / tag / questionmark.bubble）。 */
-private fun categoryIcon(id: String): ImageVector = when (id) {
-    "code" -> Icons.Filled.Code
-    "lightbulb" -> Icons.Filled.Lightbulb
-    "coffee" -> Icons.Filled.Coffee
-    "games" -> Icons.Filled.SportsEsports
-    "apple" -> Icons.Filled.PhoneIphone
-    "storage" -> Icons.Filled.Storage
-    "work" -> Icons.Filled.Work
-    "sell" -> Icons.Filled.Sell
-    "help" -> Icons.AutoMirrored.Filled.HelpOutline
-    else -> Icons.Filled.Tag
-}
-
-/** iOS 列表行：30dp accent 方块 + 白图标、17sp 标题、成员摘要（前 4 个）、右侧节点数 + chevron。 */
 @Composable
 private fun CategoryRow(
     category: NodeCategory,
@@ -399,29 +567,16 @@ private fun CategoryRow(
     onClick: () -> Unit,
 ) {
     val dark = LocalV2Dark.current
-    val memberNames = category.nodeNames.distinct()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = "打开${category.title}分类" }
             .heightIn(min = 54.dp)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(30.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.primary),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = categoryIcon(category.icon),
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(16.dp),
-            )
-        }
+        CategoryIconTile(iconId = category.icon)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -430,7 +585,7 @@ private fun CategoryRow(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = memberNames.take(4).joinToString(" · ") { uiState.displayTitle(it) },
+                text = NodeCatalog.subtitle(category, uiState.titlesByName),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -440,17 +595,43 @@ private fun CategoryRow(
         }
         Spacer(Modifier.width(12.dp))
         Text(
-            text = "${memberNames.size}",
+            text = "${uiState.countIn(category)}",
             fontSize = 15.sp,
             color = if (dark) MaterialTheme.colorScheme.onSurfaceVariant else Color(0x803C3C43),
         )
-        Spacer(Modifier.width(4.dp))
         Icon(
             imageVector = Icons.Filled.ChevronRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier
+                .padding(start = 4.dp)
+                .size(20.dp),
         )
+    }
+}
+
+private fun LazyListScope.searchDirectoryContent(
+    uiState: NodesUiState,
+    onNodeClick: (String) -> Unit,
+    onRetry: () -> Unit,
+) {
+    when {
+        uiState.allNodes.isEmpty() && uiState.isLoading -> {
+            item(key = "search-loading") { DirectoryLoadingRow() }
+        }
+
+        uiState.allNodes.isEmpty() && uiState.error != null -> {
+            item(key = "search-error") {
+                DirectoryErrorCard(message = "节点目录加载失败", onRetry = onRetry)
+            }
+        }
+
+        else -> {
+            item(key = "search-result-header") {
+                SectionHeader(title = "${uiState.searchResults.size} 个结果")
+            }
+            searchResultItems(results = uiState.searchResults, onNodeClick = onNodeClick)
+        }
     }
 }
 
@@ -484,7 +665,6 @@ private fun LazyListScope.searchResultItems(
     }
 }
 
-/** 搜索结果行：iOS 列表行形态 — 30dp 身份方块、17sp 标题、右侧话题数 + chevron。 */
 @Composable
 private fun SearchResultNodeRow(node: Node, onClick: () -> Unit) {
     val dark = LocalV2Dark.current
@@ -493,35 +673,17 @@ private fun SearchResultNodeRow(node: Node, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = "打开 $title 节点" }
             .heightIn(min = 54.dp)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        if (node.avatarUrl != null) {
-            AsyncImage(
-                model = node.avatarUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(RoundedCornerShape(8.dp)),
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(identityColor(node.name)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = title.take(1),
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
+        NodeIdentitySquare(
+            name = node.name,
+            title = title,
+            avatarUrl = node.avatarUrl,
+            size = 30.dp,
+        )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -532,7 +694,7 @@ private fun SearchResultNodeRow(node: Node, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = node.name,
+                text = node.path,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -540,19 +702,20 @@ private fun SearchResultNodeRow(node: Node, onClick: () -> Unit) {
             )
         }
         Spacer(Modifier.width(12.dp))
-        node.topics?.takeIf { it > 0 }?.let { topics ->
+        node.topics?.let { topics ->
             Text(
                 text = String.format(Locale.US, "%,d", topics),
                 fontSize = 15.sp,
                 color = if (dark) MaterialTheme.colorScheme.onSurfaceVariant else Color(0x803C3C43),
             )
-            Spacer(Modifier.width(4.dp))
         }
         Icon(
             Icons.Filled.ChevronRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier
+                .padding(start = 4.dp)
+                .size(20.dp),
         )
     }
 }

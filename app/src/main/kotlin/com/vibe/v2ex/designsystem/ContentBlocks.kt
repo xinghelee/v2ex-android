@@ -59,19 +59,32 @@ fun ContentBlocksView(
     blocks: List<ContentBlock>,
     modifier: Modifier = Modifier,
     textStyle: TextStyle = MaterialTheme.typography.bodyMedium,
+    fontSizeOffset: Float = 0f,
+    lineSpacingScale: Float = 1f,
 ) {
     val linkColor = MaterialTheme.colorScheme.primary
+    val reading = LocalReadingTypography.current
+    val baseSize = (reading.fontSize + fontSizeOffset).coerceAtLeast(11f)
+    val extraSpacing = reading.fontSize * (reading.lineSpacing.multiplier - 1f) * lineSpacingScale
+    val readerStyle = textStyle.copy(
+        fontSize = baseSize.sp,
+        lineHeight = (baseSize + extraSpacing).sp,
+    )
     SelectionContainer(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             blocks.forEach { block ->
                 when (block) {
                     is ContentBlock.Paragraph -> Text(
                         text = block.text.withLinkColor(linkColor),
-                        style = textStyle,
+                        style = readerStyle,
                     )
-                    is ContentBlock.Code -> CodeBlock(block.code)
-                    is ContentBlock.Quote -> QuoteBlock(block.text.withLinkColor(linkColor), textStyle)
-                    is ContentBlock.ListBlock -> ListBlockView(block.items, textStyle, linkColor)
+                    is ContentBlock.Code -> CodeBlock(block.code, baseSize, reading.monoFont)
+                    is ContentBlock.Quote -> QuoteBlock(
+                        block.text.withLinkColor(linkColor),
+                        readerStyle,
+                        extraSpacing,
+                    )
+                    is ContentBlock.ListBlock -> ListBlockView(block.items, readerStyle, linkColor)
                     is ContentBlock.Image -> ContentImage(block.url)
                     ContentBlock.Rule -> HorizontalDivider(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
@@ -84,7 +97,21 @@ fun ContentBlocksView(
 
 /** 代码块（设计稿）：#F7F7F9 / 深色 #2C2C2E 底，圆角 12，等宽 13sp，无边框。 */
 @Composable
-private fun CodeBlock(code: String) {
+private fun CodeBlock(
+    code: String,
+    baseSize: Float,
+    monoFont: com.vibe.v2ex.data.datastore.MonoFontPreference,
+) {
+    // SF Mono and Menlo are Apple-licensed fonts and are not available on
+    // Android. Keep every option on the platform-guaranteed monospace family,
+    // then expose distinct compact/regular/classic spacing variants instead
+    // of silently falling back to a proportional OEM font.
+    val letterSpacing = when (monoFont) {
+        com.vibe.v2ex.data.datastore.MonoFontPreference.SF_MONO -> 0.sp
+        com.vibe.v2ex.data.datastore.MonoFontPreference.MENLO -> (-0.12).sp
+        com.vibe.v2ex.data.datastore.MonoFontPreference.COURIER -> 0.32.sp
+    }
+    val codeSize = (baseSize - 3f).coerceAtLeast(10f)
     Surface(
         color = if (LocalV2Dark.current) V2Colors.CodeBgDark else V2Colors.CodeBgLight,
         shape = RoundedCornerShape(12.dp),
@@ -94,7 +121,9 @@ private fun CodeBlock(code: String) {
             text = code,
             style = MaterialTheme.typography.bodySmall.copy(
                 fontFamily = FontFamily.Monospace,
-                lineHeight = 21.sp,
+                fontSize = codeSize.sp,
+                lineHeight = (codeSize + 4f).sp,
+                letterSpacing = letterSpacing,
             ),
             softWrap = false,
             modifier = Modifier
@@ -106,7 +135,8 @@ private fun CodeBlock(code: String) {
 
 /** 引用块（设计稿）：左竖线 2.5dp accent 35%，引文 muted，无底色。 */
 @Composable
-private fun QuoteBlock(text: AnnotatedString, textStyle: TextStyle) {
+private fun QuoteBlock(text: AnnotatedString, textStyle: TextStyle, extraSpacing: Float) {
+    val quoteSize = (textStyle.fontSize.value - 1f).coerceAtLeast(10f)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -120,7 +150,10 @@ private fun QuoteBlock(text: AnnotatedString, textStyle: TextStyle) {
         )
         Text(
             text = text,
-            style = textStyle.copy(fontSize = 14.sp, lineHeight = 20.sp),
+            style = textStyle.copy(
+                fontSize = quoteSize.sp,
+                lineHeight = (quoteSize + extraSpacing * 0.8f).sp,
+            ),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
         )
