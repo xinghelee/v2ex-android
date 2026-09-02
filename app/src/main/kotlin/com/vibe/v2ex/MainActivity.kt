@@ -10,21 +10,34 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
+import com.vibe.v2ex.data.datastore.SettingsDataStore
 import com.vibe.v2ex.designsystem.V2exTheme
 import com.vibe.v2ex.feature.agreement.AgreementScreen
+import com.vibe.v2ex.feature.settings.AppIcon
 import com.vibe.v2ex.navigation.V2exApp
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val appViewModel: AppViewModel by viewModels()
     private val incomingDeepLink = MutableStateFlow<Uri?>(null)
 
+    @Inject lateinit var settingsDataStore: SettingsDataStore
+
+    /** 用户在设置里选的桌面图标；切 alias 会结束当前任务，所以攒到 [onStop] 再做。 */
+    private var chosenAppIcon: AppIcon? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         incomingDeepLink.value = intent?.data
+        lifecycleScope.launch {
+            settingsDataStore.appIcon.collect { chosenAppIcon = AppIcon.fromName(it) }
+        }
         enableEdgeToEdge()
         setContent {
             val uiState by appViewModel.uiState.collectAsState()
@@ -45,6 +58,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        chosenAppIcon?.let { AppIcon.sync(this, it) }
     }
 
     override fun onNewIntent(intent: Intent) {

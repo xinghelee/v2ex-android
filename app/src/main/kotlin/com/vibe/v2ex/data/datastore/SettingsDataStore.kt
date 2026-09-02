@@ -39,6 +39,7 @@ class SettingsDataStore @Inject constructor(
         val OFFLINE_ON_WIFI_ONLY = booleanPreferencesKey("offline_on_wifi_only")
         val COMMUNITY_PULSE_ENABLED = booleanPreferencesKey("community_pulse_enabled")
         val LIQUID_GLASS_ENABLED = booleanPreferencesKey("liquid_glass_enabled")
+        val APP_ICON = stringPreferencesKey("app_icon")
     }
 
     val theme: Flow<AppTheme> = context.settingsDataStore.data.map { prefs ->
@@ -78,6 +79,10 @@ class SettingsDataStore @Inject constructor(
     val liquidGlassEnabled: Flow<Boolean> =
         context.settingsDataStore.data.map { it[Keys.LIQUID_GLASS_ENABLED] ?: true }
 
+    /** 用户选的桌面图标（AppIcon 枚举名）。真正切 activity-alias 的动作等 App 退到后台再做。 */
+    val appIcon: Flow<String?> =
+        context.settingsDataStore.data.map { it[Keys.APP_ICON] }
+
     suspend fun setTheme(theme: AppTheme) = context.settingsDataStore.edit { it[Keys.THEME] = theme.name }
     suspend fun setDarkMode(mode: DarkModePreference) = context.settingsDataStore.edit { it[Keys.DARK_MODE] = mode.name }
     suspend fun setFontSize(size: Float) = context.settingsDataStore.edit { it[Keys.FONT_SIZE] = size }
@@ -99,4 +104,7 @@ class SettingsDataStore @Inject constructor(
         context.settingsDataStore.edit { it[Keys.COMMUNITY_PULSE_ENABLED] = enabled }
     suspend fun setLiquidGlassEnabled(enabled: Boolean) =
         context.settingsDataStore.edit { it[Keys.LIQUID_GLASS_ENABLED] = enabled }
+
+    suspend fun setAppIcon(name: String) =
+        context.settingsDataStore.edit { it[Keys.APP_ICON] = name }
 }

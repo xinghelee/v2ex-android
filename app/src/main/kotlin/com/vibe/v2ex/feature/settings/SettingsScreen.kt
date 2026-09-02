@@ -2,6 +2,7 @@ package com.vibe.v2ex.feature.settings
 
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -45,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -168,6 +171,10 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(16.dp))
         SectionHeader("主题色")
         PaletteRow(selected = uiState.theme, onSelect = viewModel::setTheme)
+
+        Spacer(modifier = Modifier.height(16.dp))
+        SectionHeader("应用图标")
+        AppIconRow(selected = uiState.appIcon, onSelect = viewModel::setAppIcon)
 
         Spacer(modifier = Modifier.height(16.dp))
         SectionHeader("底栏")
@@ -432,6 +439,64 @@ private fun PaletteRow(selected: AppTheme, onSelect: (AppTheme) -> Unit) {
                 )
             }
         }
+    }
+}
+
+/** 桌面图标行：和主题色同一套 46dp 圆 + 选中描边，圆里按 adaptive icon 的 72/108 可见区画前景。 */
+@Composable
+private fun AppIconRow(selected: AppIcon, onSelect: (AppIcon) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            AppIcon.entries.forEach { icon ->
+                val isSelected = icon == selected
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(AppIcon.backgroundGradient))
+                            .border(
+                                width = if (isSelected) 2.dp else 0.dp,
+                                color = if (isSelected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    Color.Transparent
+                                },
+                                shape = CircleShape,
+                            )
+                            .clickable { onSelect(icon) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        // 前景画布是 108dp、只露中间 72dp：按 108/72 放大，超出圆的部分被 clip 掉。
+                        Image(
+                            painter = painterResource(icon.foreground),
+                            contentDescription = icon.label,
+                            modifier = Modifier.requiredSize(46.dp * 108 / 72),
+                        )
+                    }
+                    Text(
+                        text = icon.label,
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+            }
+        }
+        Text(
+            text = "离开 App 后生效；桌面上原有的图标可能被启动器移除，需要重新添加",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 10.dp),
+        )
     }
 }
 

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+    <!-- 两只对话气泡：后面白的、前面琥珀的。所有图标都落在圆形遮罩安全半径 313px 内。 -->
+    <group android:translateY="14">
+        <path android:fillColor="#003D28" android:fillAlpha="0.32" android:pathData="M372,292 H600 C649,292 688,331 688,380 V500 C688,549 649,588 600,588 H444 L372,652 V588 C323,588 284,549 284,500 V380 C284,331 323,292 372,292 Z" />
+    </group>
+    <path android:fillColor="#FFFFFF" android:pathData="M372,292 H600 C649,292 688,331 688,380 V500 C688,549 649,588 600,588 H444 L372,652 V588 C323,588 284,549 284,500 V380 C284,331 323,292 372,292 Z" />
+    <!-- 琥珀气泡外扩 14px 的半透明深绿：既是它的投影，也是压在白气泡上的那圈缝。 -->
+    <path android:fillColor="#003D28" android:fillAlpha="0.32" android:pathData="M520,456 H676 C719,456 754,491 754,534 V616 C754,659 719,694 676,694 H674 V762 L580,694 H520 C477,694 442,659 442,616 V534 C442,491 477,456 520,456 Z" />
+    <path android:fillColor="#E8A33C" android:pathData="M520,470 H676 C711,470 740,499 740,534 V616 C740,651 711,680 676,680 H660 V740 L596,680 H520 C485,680 456,651 456,616 V534 C456,499 485,470 520,470 Z" />
+</vector>

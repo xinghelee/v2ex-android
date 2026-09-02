@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+    <!-- 粗体 V + 琥珀点。 -->
+    <group android:translateY="14">
+        <path android:fillColor="#003D28" android:fillAlpha="0.32" android:pathData="M336,372 H440 L512,522 L584,372 H688 L512,724 Z" />
+    </group>
+    <path android:fillColor="#FFFFFF" android:pathData="M336,372 H440 L512,522 L584,372 H688 L512,724 Z" />
+    <path android:fillColor="#E8A33C" android:pathData="M512,272 A50,50 0,1 1,512 372 A50,50 0,1 1,512 272 Z" />
+</vector>

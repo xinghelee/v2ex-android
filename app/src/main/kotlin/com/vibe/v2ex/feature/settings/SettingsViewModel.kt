@@ -41,6 +41,7 @@ data class SettingsUiState(
     val offlineOnWifiOnly: Boolean = true,
     val communityPulseEnabled: Boolean = true,
     val liquidGlassEnabled: Boolean = true,
+    val appIcon: AppIcon = AppIcon.BUBBLES,
     /** 离线缓存占用：正文快照（JSON 字节近似值）+ 图片磁盘缓存，供「清空缓存」行展示。 */
     val cacheByteSize: Long = 0,
     /** 已离线的话题数，「立即缓存」行的副标题。 */
@@ -123,13 +124,15 @@ class SettingsViewModel @Inject constructor(
     private data class Toggles(
         val communityPulse: Boolean,
         val liquidGlass: Boolean,
+        val appIcon: AppIcon,
     )
 
     private val toggles = combine(
         settingsDataStore.communityPulseEnabled,
         settingsDataStore.liquidGlassEnabled,
-    ) { communityPulse, liquidGlass ->
-        Toggles(communityPulse, liquidGlass)
+        settingsDataStore.appIcon,
+    ) { communityPulse, liquidGlass, appIcon ->
+        Toggles(communityPulse, liquidGlass, AppIcon.fromName(appIcon))
     }
 
     private val refreshSession = MutableStateFlow(0)
@@ -154,6 +157,7 @@ class SettingsViewModel @Inject constructor(
             offlineOnWifiOnly = reading.wifiOnly,
             communityPulseEnabled = toggles.communityPulse,
             liquidGlassEnabled = toggles.liquidGlass,
+            appIcon = toggles.appIcon,
             cacheByteSize = offline.topicBytes + imageCacheBytes(),
             offlineTopicCount = offline.topicCount,
             offlineProgress = offline.progress,
@@ -188,6 +192,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsDataStore.setCommunityPulseEnabled(enabled) }
     fun setLiquidGlassEnabled(enabled: Boolean) =
         viewModelScope.launch { settingsDataStore.setLiquidGlassEnabled(enabled) }
+
+    /** 只记录选择；真正切 alias 在 MainActivity.onStop（见 [AppIcon]）。 */
+    fun setAppIcon(icon: AppIcon) =
+        viewModelScope.launch { settingsDataStore.setAppIcon(icon.name) }
 
     /** 登机前手动把最新话题连回复下载下来；下载本身跑在协调器里，离开本页也不会中断。 */
     fun prefetchOffline() {

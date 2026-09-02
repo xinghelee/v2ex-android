@@ -33,10 +33,6 @@
             android:theme="@style/Theme.V2EX.Splash"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -50,6 +46,59 @@
                 <data android:pathPrefix="/t/" />
             </intent-filter>
         </activity>
+
+        <!--
+            桌面图标由用户在设置里选：每个别名各带一套图标，同一时刻只启用一个
+            （见 feature/settings/AppIcon.kt）。Deep link 仍落在 MainActivity 本体上。
+        -->
+        <activity-alias
+            android:name=".icon.Bubbles"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icon.Dots"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_dots"
+            android:roundIcon="@mipmap/ic_launcher_dots"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icon.V"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_v"
+            android:roundIcon="@mipmap/ic_launcher_v"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icon.BoldV"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_boldv"
+            android:roundIcon="@mipmap/ic_launcher_boldv"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
     </application>
 
 </manifest>

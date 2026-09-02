@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+    <!-- 与 iOS 同款的气泡 + 三点。 -->
+    <group android:translateY="14">
+        <path android:fillColor="#003D28" android:fillAlpha="0.32" android:pathData="M388,302 H636 C689,302 732,345 732,398 V536 C732,589 689,632 636,632 H562 L512,722 L462,632 H388 C335,632 292,589 292,536 V398 C292,345 335,302 388,302 Z" />
+    </group>
+    <path android:fillColor="#FFFFFF" android:pathData="M388,302 H636 C689,302 732,345 732,398 V536 C732,589 689,632 636,632 H562 L512,722 L462,632 H388 C335,632 292,589 292,536 V398 C292,345 335,302 388,302 Z" />
+    <path android:fillColor="#00734C" android:pathData="M392,421 A46,46 0,1 1,392 513 A46,46 0,1 1,392 421 Z" />
+    <path android:fillColor="#E8A33C" android:pathData="M512,421 A46,46 0,1 1,512 513 A46,46 0,1 1,512 421 Z" />
+    <path android:fillColor="#00734C" android:pathData="M632,421 A46,46 0,1 1,632 513 A46,46 0,1 1,632 421 Z" />
+</vector>
