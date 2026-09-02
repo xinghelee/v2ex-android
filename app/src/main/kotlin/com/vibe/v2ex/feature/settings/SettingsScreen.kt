@@ -60,6 +60,7 @@ import com.vibe.v2ex.data.repository.OfflineSyncProgress
 import com.vibe.v2ex.designsystem.SectionHeader
 import com.vibe.v2ex.designsystem.SecureCredentialField
 import com.vibe.v2ex.designsystem.V2Card
+import com.vibe.v2ex.designsystem.isLiquidGlassSupported
 import com.vibe.v2ex.designsystem.V2Colors
 import com.vibe.v2ex.designsystem.paletteFor
 import kotlinx.coroutines.delay
@@ -167,6 +168,22 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(16.dp))
         SectionHeader("主题色")
         PaletteRow(selected = uiState.theme, onSelect = viewModel::setTheme)
+
+        Spacer(modifier = Modifier.height(16.dp))
+        SectionHeader("底栏")
+        V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+            SwitchRow(
+                label = "液态玻璃",
+                subtitle = if (isLiquidGlassSupported) {
+                    "底栏悬浮成一枚毛玻璃胶囊，内容从下方滚过"
+                } else {
+                    "需要 Android 12 及以上"
+                },
+                checked = uiState.liquidGlassEnabled && isLiquidGlassSupported,
+                onCheckedChange = viewModel::setLiquidGlassEnabled,
+                enabled = isLiquidGlassSupported,
+            )
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
         SectionHeader("正文")

@@ -30,6 +30,7 @@ data class AppUiState(
     val readingLineSpacing: LineSpacingPreference = LineSpacingPreference.RELAXED,
     val readingMonoFont: MonoFontPreference = MonoFontPreference.SF_MONO,
     val agreementAccepted: Boolean = true,
+    val liquidGlassEnabled: Boolean = true,
 )
 
 private data class AppearanceState(
@@ -63,7 +64,8 @@ class AppViewModel @Inject constructor(
     val uiState: StateFlow<AppUiState> = combine(
         appearance,
         settingsDataStore.agreedTermsVersion,
-    ) { appearance, agreedVersion ->
+        settingsDataStore.liquidGlassEnabled,
+    ) { appearance, agreedVersion, liquidGlassEnabled ->
         AppUiState(
             theme = appearance.theme,
             darkMode = appearance.darkMode,
@@ -71,6 +73,7 @@ class AppViewModel @Inject constructor(
             readingLineSpacing = appearance.lineSpacing,
             readingMonoFont = appearance.monoFont,
             agreementAccepted = agreedVersion >= CURRENT_AGREEMENT_VERSION,
+            liquidGlassEnabled = liquidGlassEnabled,
         )
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppUiState())

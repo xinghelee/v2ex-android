@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vibe.v2ex.data.model.Topic
@@ -51,6 +52,7 @@ import com.vibe.v2ex.designsystem.CardGroupItem
 import com.vibe.v2ex.designsystem.CardTopicRow
 import com.vibe.v2ex.designsystem.FeaturedTopicCard
 import com.vibe.v2ex.designsystem.GlassCircleButton
+import com.vibe.v2ex.designsystem.LocalTabBarClearance
 import com.vibe.v2ex.designsystem.LocalV2Dark
 import com.vibe.v2ex.designsystem.OfflineBadge
 import com.vibe.v2ex.designsystem.OfflineNoticeBar
@@ -59,8 +61,12 @@ import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.cardGroupPosition
 import kotlinx.coroutines.launch
 
-/** 各 tab 列表的底部留白（底栏为常规通栏，由 Scaffold 占位，这里只留呼吸空间）。 */
-val TAB_BAR_CLEARANCE = 16.dp
+/**
+ * 各 tab 列表的底部留白。实心底栏由 Scaffold 占位，只需呼吸空间；玻璃底栏悬浮在内容之上，
+ * 得把胶囊高度和系统导航栏一起让出来 —— 实际值由 [LocalTabBarClearance] 按当前形态给出。
+ */
+val TAB_BAR_CLEARANCE: Dp
+    @Composable get() = LocalTabBarClearance.current
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

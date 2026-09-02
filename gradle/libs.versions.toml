@@ -21,9 +21,11 @@ materialIconsExtended = "1.7.8"
 coroutines = "1.10.2"
 splashscreen = "1.2.0"
 browser = "1.9.0"
+backdrop = "2.0.1"
 
 [libraries]
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
+backdrop = { group = "io.github.kyant0", name = "backdrop-android", version.ref = "backdrop" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleRuntimeKtx" }

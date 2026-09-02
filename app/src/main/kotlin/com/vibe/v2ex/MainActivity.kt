@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
                 V2exApp(
                     deepLinkUri = deepLink,
                     onDeepLinkHandled = { incomingDeepLink.value = null },
+                    liquidGlassEnabled = uiState.liquidGlassEnabled,
                 )
             }
         }

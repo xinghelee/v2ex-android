@@ -38,6 +38,7 @@ class SettingsDataStore @Inject constructor(
         val AUTO_SYNC_FOLLOWED_NODES = booleanPreferencesKey("auto_sync_followed_nodes")
         val OFFLINE_ON_WIFI_ONLY = booleanPreferencesKey("offline_on_wifi_only")
         val COMMUNITY_PULSE_ENABLED = booleanPreferencesKey("community_pulse_enabled")
+        val LIQUID_GLASS_ENABLED = booleanPreferencesKey("liquid_glass_enabled")
     }
 
     val theme: Flow<AppTheme> = context.settingsDataStore.data.map { prefs ->
@@ -73,6 +74,10 @@ class SettingsDataStore @Inject constructor(
     val communityPulseEnabled: Flow<Boolean> =
         context.settingsDataStore.data.map { it[Keys.COMMUNITY_PULSE_ENABLED] ?: true }
 
+    /** 底栏液态玻璃。默认开，设备不支持（Android 12 以下）时渲染层自己降级，不看这个值。 */
+    val liquidGlassEnabled: Flow<Boolean> =
+        context.settingsDataStore.data.map { it[Keys.LIQUID_GLASS_ENABLED] ?: true }
+
     suspend fun setTheme(theme: AppTheme) = context.settingsDataStore.edit { it[Keys.THEME] = theme.name }
     suspend fun setDarkMode(mode: DarkModePreference) = context.settingsDataStore.edit { it[Keys.DARK_MODE] = mode.name }
     suspend fun setFontSize(size: Float) = context.settingsDataStore.edit { it[Keys.FONT_SIZE] = size }
@@ -92,4 +97,6 @@ class SettingsDataStore @Inject constructor(
         context.settingsDataStore.edit { it[Keys.OFFLINE_ON_WIFI_ONLY] = enabled }
     suspend fun setCommunityPulseEnabled(enabled: Boolean) =
         context.settingsDataStore.edit { it[Keys.COMMUNITY_PULSE_ENABLED] = enabled }
+    suspend fun setLiquidGlassEnabled(enabled: Boolean) =
+        context.settingsDataStore.edit { it[Keys.LIQUID_GLASS_ENABLED] = enabled }
 }

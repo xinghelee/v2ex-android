@@ -87,6 +87,8 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.splashscreen)
     implementation(libs.androidx.browser)
+    // 液态玻璃底栏（Kyant0/AndroidLiquidGlass）；效果分级由 isRenderEffectSupported 兜底。
+    implementation(libs.backdrop)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

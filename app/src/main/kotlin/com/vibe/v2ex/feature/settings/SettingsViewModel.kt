@@ -40,6 +40,7 @@ data class SettingsUiState(
     val autoOfflineFollowedNodes: Boolean = true,
     val offlineOnWifiOnly: Boolean = true,
     val communityPulseEnabled: Boolean = true,
+    val liquidGlassEnabled: Boolean = true,
     /** 离线缓存占用：正文快照（JSON 字节近似值）+ 图片磁盘缓存，供「清空缓存」行展示。 */
     val cacheByteSize: Long = 0,
     /** 已离线的话题数，「立即缓存」行的副标题。 */
@@ -119,15 +120,27 @@ class SettingsViewModel @Inject constructor(
         )
     }
 
+    private data class Toggles(
+        val communityPulse: Boolean,
+        val liquidGlass: Boolean,
+    )
+
+    private val toggles = combine(
+        settingsDataStore.communityPulseEnabled,
+        settingsDataStore.liquidGlassEnabled,
+    ) { communityPulse, liquidGlass ->
+        Toggles(communityPulse, liquidGlass)
+    }
+
     private val refreshSession = MutableStateFlow(0)
 
     val uiState: StateFlow<SettingsUiState> = combine(
         appearance,
         reading,
         offline,
-        settingsDataStore.communityPulseEnabled,
+        toggles,
         refreshSession,
-    ) { appearance, reading, offline, communityPulseEnabled, _ ->
+    ) { appearance, reading, offline, toggles, _ ->
         SettingsUiState(
             theme = appearance.theme,
             darkMode = appearance.darkMode,
@@ -139,7 +152,8 @@ class SettingsViewModel @Inject constructor(
             autoSyncFollowedNodes = reading.autoSync,
             autoOfflineFollowedNodes = reading.autoOffline,
             offlineOnWifiOnly = reading.wifiOnly,
-            communityPulseEnabled = communityPulseEnabled,
+            communityPulseEnabled = toggles.communityPulse,
+            liquidGlassEnabled = toggles.liquidGlass,
             cacheByteSize = offline.topicBytes + imageCacheBytes(),
             offlineTopicCount = offline.topicCount,
             offlineProgress = offline.progress,
@@ -172,6 +186,8 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsDataStore.setOfflineOnWifiOnly(enabled) }
     fun setCommunityPulseEnabled(enabled: Boolean) =
         viewModelScope.launch { settingsDataStore.setCommunityPulseEnabled(enabled) }
+    fun setLiquidGlassEnabled(enabled: Boolean) =
+        viewModelScope.launch { settingsDataStore.setLiquidGlassEnabled(enabled) }
 
     /** 登机前手动把最新话题连回复下载下来；下载本身跑在协调器里，离开本页也不会中断。 */
     fun prefetchOffline() {
