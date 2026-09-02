@@ -263,6 +263,7 @@ private fun CategoryNodeRow(node: Node, onClick: () -> Unit) {
             title = title,
             avatarUrl = node.avatarUrl,
             size = 34.dp,
+            transparentFallback = true,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -359,7 +360,14 @@ internal fun NodeIdentitySquare(
             .size(size)
             .clip(shape)
             .background(fallbackColor)
-            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            // 透明形态是把方块让给节点自己的图，再描一圈边等于又把方块画了回来。
+            .then(
+                if (transparentFallback) {
+                    Modifier
+                } else {
+                    Modifier.border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+                },
+            )
             .clearAndSetSemantics {},
         contentAlignment = Alignment.Center,
     ) {
