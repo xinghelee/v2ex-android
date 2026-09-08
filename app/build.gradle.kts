@@ -22,8 +22,8 @@ android {
         applicationId = "com.vibe.v2ex"
         minSdk = 26
         targetSdk = 37
-        versionCode = 7
-        versionName = "1.2.1"
+        versionCode = 8
+        versionName = "1.2.2"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -119,6 +119,8 @@ dependencies {
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
+
+    testImplementation("junit:junit:4.13.2")
 
     implementation(libs.datastore.preferences)
     implementation(libs.security.crypto)

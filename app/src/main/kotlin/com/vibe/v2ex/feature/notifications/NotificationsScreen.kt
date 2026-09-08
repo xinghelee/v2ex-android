@@ -13,21 +13,24 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,11 +43,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.vibe.v2ex.designsystem.Avatar
 import com.vibe.v2ex.designsystem.CardGroupItem
 import com.vibe.v2ex.designsystem.LocalV2Dark
@@ -58,97 +66,118 @@ import com.vibe.v2ex.feature.home.TAB_BAR_CLEARANCE
 @Composable
 fun NotificationsScreen(
     onTopicClick: (Long) -> Unit = {},
+    onAccountClick: () -> Unit = {},
     viewModel: NotificationsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    // 每次回到本 tab 都重新拉取，顺带重新检查 Token 是否已经配置。
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    // 进入本 tab 或从后台返回时重新读取列表和官网计数。
+    LifecycleResumeEffect(viewModel) {
+        viewModel.refresh()
+        onPauseOrDispose { }
+    }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding(),
-    ) {
-        // 大标题 + 全部已读（设计稿 06 顶栏）
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "通知",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.weight(1f),
-            )
-            val markAllEnabled = uiState.totalUnread > 0
-            Text(
-                text = "全部已读",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (markAllEnabled) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+    val notice = uiState.notice
+    LaunchedEffect(notice?.id) {
+        if (notice == null) return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
+            message = notice.message,
+            actionLabel = if (notice.action == NotificationNoticeAction.ACCOUNT) "账号" else null,
+            withDismissAction = true,
+            duration = SnackbarDuration.Long,
+        )
+        viewModel.consumeNotice(notice.id)
+        if (result == SnackbarResult.ActionPerformed && notice.action == NotificationNoticeAction.ACCOUNT) {
+            onAccountClick()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+            // 大标题 + 官网账号级「全部已读」。
+            Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(enabled = markAllEnabled, onClick = viewModel::markAllSeen)
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
-            )
-        }
-
-        if (!uiState.isTokenSet) {
-            TokenEmptyState(modifier = Modifier.fillMaxSize())
-            return@Column
-        }
-
-        FilterChips(uiState = uiState, onSelect = viewModel::selectFilter)
-
-        PullToRefreshBox(
-            isRefreshing = uiState.isRefreshing,
-            onRefresh = viewModel::refresh,
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = TAB_BAR_CLEARANCE),
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (uiState.visibleRows.isEmpty() && !uiState.isRefreshing) {
-                    item(key = "empty") {
-                        V2Card {
-                            Text(
-                                text = uiState.error?.let { "加载失败：$it" } ?: "暂无通知",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            )
-                        }
-                    }
+                Text(
+                    text = "通知",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    onClick = viewModel::markAllRead,
+                    enabled = uiState.canMarkAllRead,
+                    modifier = Modifier.heightIn(min = 44.dp),
+                ) {
+                    Text(
+                        text = if (uiState.isSyncing) "正在同步…" else "全部已读",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
                 }
-                itemsIndexed(uiState.visibleRows, key = { _, row -> row.id }) { index, row ->
-                    CardGroupItem(position = cardGroupPosition(index, uiState.visibleRows.lastIndex)) {
-                        NotificationRowItem(
-                            row = row,
-                            // 点击 = 标记已读 + 跳到对应帖子（mirrors iOS 的通知行 NavigationLink）。
-                            onClick = {
-                                viewModel.markSeen(row.id)
-                                row.topicId?.let(onTopicClick)
-                            },
-                            onMarkSeen = { viewModel.markSeen(row.id) },
-                            onDelete = { viewModel.delete(row.id) },
-                        )
+            }
+
+            if (!uiState.isTokenSet) {
+                TokenEmptyState(onAccountClick = onAccountClick, modifier = Modifier.fillMaxSize())
+            } else {
+                FilterChips(uiState = uiState, onSelect = viewModel::selectFilter)
+
+                PullToRefreshBox(
+                    isRefreshing = uiState.isRefreshing,
+                    onRefresh = viewModel::refresh,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = TAB_BAR_CLEARANCE),
+                    ) {
+                        if (uiState.visibleRows.isEmpty() && !uiState.isRefreshing) {
+                            item(key = "empty") {
+                                V2Card {
+                                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                                        Text(
+                                            text = uiState.error?.let { "加载失败：$it" } ?: "没有新通知",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        if (uiState.error != null) {
+                                            TextButton(
+                                                onClick = viewModel::refresh,
+                                                modifier = Modifier.padding(top = 4.dp).heightIn(min = 44.dp),
+                                            ) {
+                                                Text("重试")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        itemsIndexed(uiState.visibleRows, key = { _, row -> row.id }) { index, row ->
+                            CardGroupItem(position = cardGroupPosition(index, uiState.visibleRows.lastIndex)) {
+                                NotificationRowItem(
+                                    row = row,
+                                    onClick = { row.topicId?.let(onTopicClick) },
+                                    onDelete = { viewModel.delete(row.id) },
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = TAB_BAR_CLEARANCE),
+        )
     }
 }
 
-/** 分类 chip：选中 = accent 底白字圆角 15 附未读数；未选 = 白 80% 底（设计稿 06）。 */
+/** 分类 chip 只表达筛选，不虚构 API 并不存在的分类已读计数。 */
 @Composable
 private fun FilterChips(uiState: NotificationsUiState, onSelect: (NotificationFilter) -> Unit) {
     val dark = LocalV2Dark.current
@@ -161,9 +190,8 @@ private fun FilterChips(uiState: NotificationsUiState, onSelect: (NotificationFi
     ) {
         NotificationFilter.entries.forEach { filter ->
             val selected = uiState.filter == filter
-            val unread = uiState.unreadCount(filter)
             Text(
-                text = if (unread > 0) "${filter.label} $unread" else filter.label,
+                text = filter.label,
                 fontSize = 14.sp,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 color = when {
@@ -181,6 +209,11 @@ private fun FilterChips(uiState: NotificationsUiState, onSelect: (NotificationFi
                         },
                     )
                     .clickable { onSelect(filter) }
+                    .heightIn(min = 44.dp)
+                    .semantics {
+                        role = Role.Tab
+                        this.selected = selected
+                    }
                     .padding(horizontal = 14.dp, vertical = 6.dp),
             )
         }
@@ -192,7 +225,6 @@ private fun FilterChips(uiState: NotificationsUiState, onSelect: (NotificationFi
 private fun NotificationRowItem(
     row: NotificationRow,
     onClick: () -> Unit,
-    onMarkSeen: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val dark = LocalV2Dark.current
@@ -207,13 +239,6 @@ private fun NotificationRowItem(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                if (row.isUnread) {
-                    if (dark) V2Colors.accentSoft(true).copy(alpha = 0.08f) else V2Colors.UnreadRowTintLight
-                } else {
-                    Color.Transparent
-                },
-            )
             .combinedClickable(onClick = onClick, onLongClick = { menuExpanded = true }),
     ) {
         Row(
@@ -263,25 +288,7 @@ private fun NotificationRowItem(
                 }
             }
         }
-        if (row.isUnread) {
-            Box(
-                modifier = Modifier
-                    .offset(x = 6.dp, y = 18.dp)
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
-            )
-        }
         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-            if (row.isUnread) {
-                DropdownMenuItem(
-                    text = { Text("标记已读") },
-                    onClick = {
-                        menuExpanded = false
-                        onMarkSeen()
-                    },
-                )
-            }
             DropdownMenuItem(
                 text = { Text("删除") },
                 onClick = {
@@ -294,9 +301,12 @@ private fun NotificationRowItem(
 }
 
 @Composable
-private fun TokenEmptyState(modifier: Modifier = Modifier) {
+private fun TokenEmptyState(onAccountClick: () -> Unit, modifier: Modifier = Modifier) {
     Column(modifier = modifier.padding(horizontal = 16.dp)) {
-        V2Card {
+        V2Card(
+            modifier = Modifier
+                .clickable(role = Role.Button, onClickLabel = "前往账号设置", onClick = onAccountClick),
+        ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
                     text = "需要 Personal Access Token",
@@ -307,6 +317,12 @@ private fun TokenEmptyState(modifier: Modifier = Modifier) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
+                )
+                Text(
+                    text = "去填写",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 12.dp).heightIn(min = 44.dp),
                 )
             }
         }

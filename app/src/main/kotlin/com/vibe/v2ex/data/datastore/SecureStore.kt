@@ -7,6 +7,10 @@ import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Backs two unrelated credential systems with an Android Keystore-wrapped
@@ -32,12 +36,19 @@ class SecureStore @Inject constructor(
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )
 
+    /** Non-secret invalidation signal for ViewModels that retain account-scoped rows on back stack. */
+    private val _accountCredentialsRevision = MutableStateFlow(0L)
+    internal val accountCredentialsRevision: StateFlow<Long> =
+        _accountCredentialsRevision.asStateFlow()
+
     /** 入库前剔除所有空白（换行/空格）— 粘贴来的 token 常带尾部换行，进请求头会让 OkHttp 抛异常。 */
     var personalAccessToken: String?
         get() = prefs.getString(KEY_PAT, null)?.filterNot(Char::isWhitespace)?.ifBlank { null }
         set(value) {
             val cleaned = value?.filterNot(Char::isWhitespace)?.ifBlank { null }
+            if (prefs.getString(KEY_PAT, null) == cleaned) return
             prefs.edit().putString(KEY_PAT, cleaned).apply()
+            bumpAccountCredentials()
         }
 
     /** DeepSeek key is device-only and protected by Android Keystore, just like the V2EX token. */
@@ -50,11 +61,19 @@ class SecureStore @Inject constructor(
 
     var sessionCookieHeader: String?
         get() = prefs.getString(KEY_COOKIES, null)
-        set(value) = prefs.edit().putString(KEY_COOKIES, value).apply()
+        set(value) {
+            if (prefs.getString(KEY_COOKIES, null) == value) return
+            prefs.edit().putString(KEY_COOKIES, value).apply()
+            bumpAccountCredentials()
+        }
 
     var sessionUsername: String?
         get() = prefs.getString(KEY_SESSION_USERNAME, null)
-        set(value) = prefs.edit().putString(KEY_SESSION_USERNAME, value).apply()
+        set(value) {
+            if (prefs.getString(KEY_SESSION_USERNAME, null) == value) return
+            prefs.edit().putString(KEY_SESSION_USERNAME, value).apply()
+            bumpAccountCredentials()
+        }
 
     /**
      * 显式登录标记，只在 WebView 登录确认成功时置位。V2EX 对匿名访客也下发
@@ -62,7 +81,11 @@ class SecureStore @Inject constructor(
      */
     var webLoggedIn: Boolean
         get() = prefs.getBoolean(KEY_WEB_LOGGED_IN, false)
-        set(value) = prefs.edit().putBoolean(KEY_WEB_LOGGED_IN, value).apply()
+        set(value) {
+            if (prefs.getBoolean(KEY_WEB_LOGGED_IN, false) == value) return
+            prefs.edit().putBoolean(KEY_WEB_LOGGED_IN, value).apply()
+            bumpAccountCredentials()
+        }
 
     val isTokenSet: Boolean get() = !personalAccessToken.isNullOrBlank()
     val isWebSessionActive: Boolean get() = webLoggedIn && !sessionCookieHeader.isNullOrBlank()
@@ -70,19 +93,25 @@ class SecureStore @Inject constructor(
     val isDeepSeekConfigured: Boolean get() = !deepSeekApiKey.isNullOrBlank()
 
     fun clearWebSession() {
+        val changed = prefs.contains(KEY_COOKIES) ||
+            prefs.contains(KEY_SESSION_USERNAME) ||
+            prefs.contains(KEY_WEB_LOGGED_IN)
         prefs.edit()
             .remove(KEY_COOKIES)
             .remove(KEY_SESSION_USERNAME)
             .remove(KEY_WEB_LOGGED_IN)
             .apply()
+        if (changed) bumpAccountCredentials()
     }
 
-    fun clearToken() {
-        prefs.edit().remove(KEY_PAT).apply()
-    }
+    fun clearToken() { personalAccessToken = null }
 
     fun clearDeepSeekApiKey() {
         prefs.edit().remove(KEY_DEEPSEEK_API_KEY).apply()
+    }
+
+    private fun bumpAccountCredentials() {
+        _accountCredentialsRevision.update { it + 1L }
     }
 
     private companion object {

@@ -1,6 +1,7 @@
 package com.vibe.v2ex.data.repository
 
 import com.vibe.v2ex.data.model.Topic
+import com.vibe.v2ex.data.remote.PublicTopicPage
 import com.vibe.v2ex.data.remote.V2exApiV1
 import com.vibe.v2ex.data.remote.WebSessionService
 import javax.inject.Inject
@@ -11,6 +12,11 @@ class HomeRepository @Inject constructor(
     private val apiV1: V2exApiV1,
     private val webSessionService: WebSessionService,
 ) {
+    /** Public website feed used by recent, node, and followed-node pagination. */
+    suspend fun publicTopicPage(nodeName: String?, page: Int): Result<PublicTopicPage> =
+        webSessionService.publicTopicPage(nodeName = nodeName, page = page)
+
+    /** Kept for the bounded background offline-sync job; interactive feeds use [publicTopicPage]. */
     suspend fun latestTopics(): Result<List<Topic>> = runCatching { apiV1.latestTopics() }
 
     /**
@@ -31,30 +37,11 @@ class HomeRepository @Inject constructor(
         webSessionService.r2Topics().ifEmpty { error("R2 页面没有返回话题") }
     }
 
+    /** Kept for the bounded background offline-sync job; interactive feeds use [publicTopicPage]. */
     suspend fun topicsInNode(nodeName: String): Result<List<Topic>> =
         runCatching { apiV1.topicsInNode(nodeName) }
 
-    /**
-     * "关注" feed: fetch each followed node's topics SEQUENTIALLY (deliberately not parallel —
-     * the v1 API budget is 600 req/hour shared per IP), dedup by id, newest activity first.
-     * Falls back to the latest feed when the merge comes back empty.
-     */
-    suspend fun followingTopics(nodeNames: List<String>): Result<List<Topic>> = runCatching {
-        val merged = LinkedHashMap<Long, Topic>()
-        for (name in nodeNames.take(MAX_FOLLOWING_NODES)) {
-            val topics = runCatching { apiV1.topicsInNode(name) }.getOrElse { emptyList() }
-            for (topic in topics) merged.putIfAbsent(topic.id, topic)
-        }
-        if (merged.isEmpty()) {
-            apiV1.latestTopics()
-        } else {
-            merged.values.sortedByDescending { it.activityTimestamp }
-        }
-    }
-
     private companion object {
-        const val MAX_FOLLOWING_NODES = 6
-
         /** `/api/topics/hot.json` 的服务端返回上限。 */
         const val HOT_API_LIMIT = 10
     }

@@ -306,6 +306,7 @@ private fun AppNavHost(
         composable<Route.Notifications> {
             NotificationsScreen(
                 onTopicClick = { id -> navController.navigate(Route.Topic(id)) },
+                onAccountClick = { navController.navigate(Route.Login) },
             )
         }
         composable<Route.Profile> {
@@ -377,7 +378,10 @@ private fun AppNavHost(
             )
         }
         composable<Route.Moderation> {
-            ModerationSettingsScreen(onBack = navController::popBackStack)
+            ModerationSettingsScreen(
+                onBack = navController::popBackStack,
+                onAccountClick = { navController.navigate(Route.Login) },
+            )
         }
         composable<Route.Write> {
             WriteScreen(

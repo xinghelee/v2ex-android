@@ -17,14 +17,17 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.Locale
 
 data class ProfileHistoryDay(
     val date: LocalDate,
@@ -36,12 +39,43 @@ data class ProfileHistoryDay(
     }
 }
 
+/** Rules that every profile/library surface applies to its visible projection. */
+internal data class CollectionModerationRules(
+    val hiddenTopicIds: Set<Long>,
+    val blockedUsernames: Set<String>,
+    val unavailableMemberIds: Set<Long>,
+) {
+    fun hides(topicId: Long, authorName: String? = null, memberId: Long? = null): Boolean =
+        topicId in hiddenTopicIds ||
+            memberId?.let(unavailableMemberIds::contains) == true ||
+            authorName?.trim()?.lowercase(Locale.ROOT)?.takeIf(String::isNotEmpty)
+                ?.let(blockedUsernames::contains) == true
+}
+
+/** Keeps the three authoritative moderation sources synchronized as one atomic snapshot. */
+internal fun ModerationStore.collectionModerationRules(): Flow<CollectionModerationRules> = combine(
+    hiddenTopicIds,
+    blockedUsernames,
+    unavailableBlockedMemberIds,
+) { hiddenTopicIds, blockedUsernames, unavailableMemberIds ->
+    CollectionModerationRules(
+        hiddenTopicIds = hiddenTopicIds.toSet(),
+        blockedUsernames = blockedUsernames.mapTo(mutableSetOf()) { it.trim().lowercase(Locale.ROOT) },
+        unavailableMemberIds = unavailableMemberIds.toSet(),
+    )
+}
+
+internal fun CollectionModerationRules.hides(topic: Topic): Boolean =
+    hides(topicId = topic.id, authorName = topic.authorName, memberId = topic.member?.id)
+
 data class ProfileUiState(
     /** PAT 或网页会话任占其一就算已连接账号。 */
     val isConnected: Boolean = false,
     val member: Member? = null,
     /** 我发布的话题（完整列表；「最近发布」只展示前 4 条，计数用全量）。 */
     val recentTopics: List<Topic> = emptyList(),
+    /** 未经过可见性过滤的发布数；资料库总数始终反映底层数据。 */
+    val recentTopicCount: Int = 0,
     val favoriteCount: Int = 0,
     val historyCount: Int = 0,
     /** 最近 7 个自然日内、按最近浏览日归档的唯一话题数。 */
@@ -53,7 +87,7 @@ data class ProfileUiState(
     val error: String? = null,
 ) {
     val weeklyHistoryCount: Int get() = weeklyHistory.sumOf(ProfileHistoryDay::count)
-    val libraryCount: Int get() = favoriteCount + historyCount + offlineCount + recentTopics.size
+    val libraryCount: Int get() = favoriteCount + historyCount + offlineCount + recentTopicCount
 }
 
 @HiltViewModel
@@ -72,10 +106,24 @@ class ProfileViewModel @Inject constructor(
     private var historyEntries: List<HistoryEntity> = emptyList()
     private var refreshJob: Job? = null
     private var refreshGeneration = 0L
+    private var rawRecentTopics: List<Topic> = emptyList()
+    private var moderationRules: CollectionModerationRules? = null
     /** Credentials that produced the currently displayed member; prevents an account-switch flash. */
     private var memberCredentials: ProfileCredentials? = null
+    private var observedCredentialRevision = secureStore.accountCredentialsRevision.value
 
     init {
+        viewModelScope.launch {
+            moderationStore.collectionModerationRules().collect { rules ->
+                moderationRules = rules
+                _uiState.update {
+                    it.copy(
+                        recentTopics = visibleRecentTopics(),
+                        recentTopicCount = rawRecentTopics.size,
+                    )
+                }
+            }
+        }
         viewModelScope.launch {
             favoriteTopicDao.observeAll().collect { favorites ->
                 _uiState.update { it.copy(favoriteCount = favorites.size) }
@@ -107,8 +155,35 @@ class ProfileViewModel @Inject constructor(
                 _uiState.update { it.copy(moderationCount = count) }
             }
         }
+        viewModelScope.launch {
+            secureStore.accountCredentialsRevision.collect { revision ->
+                if (revision == observedCredentialRevision) return@collect
+                observedCredentialRevision = revision
+                invalidateForCredentialChange()
+            }
+        }
         // 登录态下把网页收藏同步进本地 —— 「我的」页的收藏数因此是账号的真实数据。
         viewModelScope.launch { favoritesRepository.syncFromRemote() }
+    }
+
+    /** Profile may remain on the navigation back stack while Account replaces its credentials. */
+    private fun invalidateForCredentialChange() {
+        val credentials = credentialsSnapshot()
+        refreshGeneration += 1
+        refreshJob?.cancel()
+        refreshJob = null
+        memberCredentials = null
+        rawRecentTopics = emptyList()
+        _uiState.update {
+            it.copy(
+                isConnected = credentials.isConnected,
+                member = null,
+                recentTopics = emptyList(),
+                recentTopicCount = 0,
+                isLoading = false,
+                error = null,
+            )
+        }
     }
 
     fun refresh() {
@@ -122,11 +197,13 @@ class ProfileViewModel @Inject constructor(
             if (!isCurrentRefresh(generation, credentials)) return@launch
             if (!credentials.isConnected) {
                 memberCredentials = null
+                rawRecentTopics = emptyList()
                 _uiState.update {
                     it.copy(
                         isConnected = false,
                         member = null,
                         recentTopics = emptyList(),
+                        recentTopicCount = 0,
                         isLoading = false,
                         error = null,
                     )
@@ -134,11 +211,13 @@ class ProfileViewModel @Inject constructor(
                 return@launch
             }
             val canKeepExistingMember = memberCredentials == credentials
+            if (!canKeepExistingMember) rawRecentTopics = emptyList()
             _uiState.update {
                 it.copy(
                     isConnected = true,
                     member = it.member.takeIf { canKeepExistingMember },
-                    recentTopics = it.recentTopics.takeIf { canKeepExistingMember }.orEmpty(),
+                    recentTopics = visibleRecentTopics(),
+                    recentTopicCount = rawRecentTopics.size,
                     // Keep an existing member card visible, but expose the
                     // in-flight state so ProfileScreen's pull-to-refresh
                     // indicator remains active until this request settles.
@@ -176,13 +255,14 @@ class ProfileViewModel @Inject constructor(
             }
 
             if (!isCurrentRefresh(generation, credentials)) return@launch
+            val keepsExistingTopics = _uiState.value.member?.username.equals(member.username, ignoreCase = true)
+            if (!keepsExistingTopics) rawRecentTopics = emptyList()
             memberCredentials = credentials
             _uiState.update { state ->
                 state.copy(
                     member = member,
-                    recentTopics = state.recentTopics.takeIf {
-                        state.member?.username.equals(member.username, ignoreCase = true)
-                    }.orEmpty(),
+                    recentTopics = visibleRecentTopics(),
+                    recentTopicCount = rawRecentTopics.size,
                     isLoading = false,
                 )
             }
@@ -204,14 +284,23 @@ class ProfileViewModel @Inject constructor(
             return
         }
         if (!isCurrentRefresh(generation, credentials)) return
+        rawRecentTopics = topics
         _uiState.update { state ->
             if (state.isConnected && state.member?.username.equals(username, ignoreCase = true)) {
-                state.copy(recentTopics = topics)
+                state.copy(
+                    recentTopics = visibleRecentTopics(),
+                    recentTopicCount = rawRecentTopics.size,
+                )
             } else {
                 state
             }
         }
     }
+
+    /** Null rules mean Room has not emitted yet; an empty projection prevents blocked-content flash. */
+    private fun visibleRecentTopics(): List<Topic> = moderationRules?.let { rules ->
+        rawRecentTopics.filterNot(rules::hides)
+    }.orEmpty()
 
     private fun credentialsSnapshot(): ProfileCredentials {
         val token = secureStore.personalAccessToken

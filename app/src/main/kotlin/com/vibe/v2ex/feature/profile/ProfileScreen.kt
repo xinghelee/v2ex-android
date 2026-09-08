@@ -770,7 +770,7 @@ private fun ManagementSection(
                 )
                 .semantics(mergeDescendants = true) {
                     contentDescription = if (moderationCount == 0) {
-                        "内容与屏蔽，关键词、用户与举报记录"
+                        "内容与屏蔽，官网用户与举报记录"
                     } else {
                         "内容与屏蔽，$moderationCount 条规则正在生效"
                     }
@@ -797,7 +797,7 @@ private fun ManagementSection(
                 )
                 Text(
                     text = if (moderationCount == 0) {
-                        "关键词、用户与举报记录"
+                        "官网用户与举报记录"
                     } else {
                         "$moderationCount 条规则正在生效"
                     },

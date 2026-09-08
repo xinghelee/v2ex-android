@@ -38,6 +38,9 @@ interface V2exApiV1 {
     @GET("api/members/show.json")
     suspend fun showMember(@Query("username") username: String): Member
 
+    @GET("api/members/show.json")
+    suspend fun showMemberById(@Query("id") id: Long): Member
+
     /** Unpaginated, documented upstream as unreliable/empty for very recent threads. */
     @GET("api/replies/show.json")
     suspend fun repliesForTopic(@Query("topic_id") topicId: Long): List<Reply>
@@ -58,10 +61,16 @@ interface V2exApiV2 {
 
     /** Only page 1 is ever actually used by the UI — the API supports more but nothing paginates it. */
     @GET("api/v2/notifications")
-    suspend fun notifications(@Query("p") page: Int = 1): V2Envelope<List<Notification>>
+    suspend fun notifications(
+        @Query("p") page: Int = 1,
+        @Header("Authorization") authorization: String? = null,
+    ): V2Envelope<List<Notification>>
 
     @DELETE("api/v2/notifications/{id}")
-    suspend fun deleteNotification(@Path("id") id: Long): V2Envelope<Unit>
+    suspend fun deleteNotification(
+        @Path("id") id: Long,
+        @Header("Authorization") authorization: String? = null,
+    ): V2Envelope<Unit>
 
     @GET("api/v2/nodes/{name}/topics")
     suspend fun topicsForNode(@Path("name") name: String, @Query("p") page: Int = 1): V2Envelope<List<Topic>>

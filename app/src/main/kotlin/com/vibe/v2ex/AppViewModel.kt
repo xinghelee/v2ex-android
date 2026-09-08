@@ -20,7 +20,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import javax.inject.Inject
 
 data class AppUiState(
@@ -51,6 +53,7 @@ class AppViewModel @Inject constructor(
     private val moderationStore: ModerationStore,
     private val unreadNotificationsStore: UnreadNotificationsStore,
 ) : ViewModel() {
+    private var foregroundRefreshJob: Job? = null
     private val appearance = combine(
         settingsDataStore.theme,
         settingsDataStore.darkMode,
@@ -91,11 +94,23 @@ class AppViewModel @Inject constructor(
         viewModelScope.launch {
             autoOfflineCoordinator.sync(followedNodesStore.names.first())
         }
-        // 未送达的举报在启动时补发。
-        viewModelScope.launch {
-            runCatching { moderationStore.flushPending() }
+        onForeground()
+    }
+
+    /** Imports website-authoritative block/read state whenever the app becomes active. */
+    fun onForeground() {
+        moderationStore.syncSessionIdentity()
+        foregroundRefreshJob?.cancel()
+        foregroundRefreshJob = viewModelScope.launch {
+            supervisorScope {
+                launch {
+                    if (moderationStore.websiteState.value.isWebSessionActive) {
+                        moderationStore.refreshWebsiteBlocks()
+                    }
+                }
+                launch { unreadNotificationsStore.refresh() }
+                launch { runCatching { moderationStore.flushPending() } }
+            }
         }
-        // 通知角标：启动时刷新一次（之后由通知页自己的刷新维护）。
-        viewModelScope.launch { unreadNotificationsStore.refresh() }
     }
 }

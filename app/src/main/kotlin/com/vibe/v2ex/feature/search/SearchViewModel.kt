@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.vibe.v2ex.data.datastore.RecentSearchStore
 import com.vibe.v2ex.data.model.Member
 import com.vibe.v2ex.data.model.Node
+import com.vibe.v2ex.data.moderation.ModerationStore
 import com.vibe.v2ex.data.remote.SoV2exHit
 import com.vibe.v2ex.data.remote.V2exApiV1
 import com.vibe.v2ex.data.repository.NodesRepository
@@ -14,7 +15,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import java.util.Locale
 import javax.inject.Inject
 
 /**
@@ -41,17 +44,43 @@ data class SearchUiState(
     val error: String? = null,
 )
 
+private data class SearchModerationRules(
+    val blockedUsernames: Set<String> = emptySet(),
+    val unavailableMemberIds: Set<Long> = emptySet(),
+    val hiddenTopicIds: Set<Long> = emptySet(),
+)
+
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val repository: SearchRepository,
     private val recentSearchStore: RecentSearchStore,
     private val nodesRepository: NodesRepository,
     private val apiV1: V2exApiV1,
+    moderationStore: ModerationStore,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
+    private var rawResults: List<SoV2exHit> = emptyList()
+    private var rawMemberResult: Member? = null
+    private var moderationRules: SearchModerationRules? = null
 
     init {
+        viewModelScope.launch {
+            combine(
+                moderationStore.blockedUsernames,
+                moderationStore.unavailableBlockedMemberIds,
+                moderationStore.hiddenTopicIds,
+            ) { usernames, memberIds, topicIds ->
+                SearchModerationRules(
+                    blockedUsernames = usernames.mapTo(mutableSetOf()) { it.lowercase(Locale.ROOT) },
+                    unavailableMemberIds = memberIds.toSet(),
+                    hiddenTopicIds = topicIds.toSet(),
+                )
+            }.collect { rules ->
+                moderationRules = rules
+                publishModeratedResults()
+            }
+        }
         viewModelScope.launch {
             recentSearchStore.queries.collect { recents ->
                 _uiState.update { it.copy(recents = recents) }
@@ -60,6 +89,10 @@ class SearchViewModel @Inject constructor(
     }
 
     fun onQueryChange(query: String) {
+        if (query.isBlank()) {
+            rawResults = emptyList()
+            rawMemberResult = null
+        }
         _uiState.update {
             if (query.isBlank()) {
                 it.copy(
@@ -102,7 +135,9 @@ class SearchViewModel @Inject constructor(
     private suspend fun searchFullText(query: String) {
         repository.search(query, sort = _uiState.value.scope.sort)
             .onSuccess { hits ->
-                _uiState.update { it.copy(results = hits, isLoading = false, hasSearched = true) }
+                rawResults = hits
+                publishModeratedResults()
+                _uiState.update { it.copy(isLoading = false, hasSearched = true) }
             }
             .onFailure { error ->
                 _uiState.update {
@@ -113,12 +148,14 @@ class SearchViewModel @Inject constructor(
 
     private suspend fun searchMember(query: String) {
         val member = runCatching { apiV1.showMember(query) }.getOrNull()
+        rawMemberResult = member
+        val visibleMember = moderationRules?.let { rules -> member?.takeUnless { isMemberBlocked(it, rules) } }
         _uiState.update {
             it.copy(
-                memberResult = member,
+                memberResult = visibleMember,
                 isLoading = false,
                 hasSearched = true,
-                error = if (member == null) "没有找到用户 $query" else null,
+                error = if (visibleMember == null) "没有找到用户 $query" else null,
             )
         }
     }
@@ -146,4 +183,32 @@ class SearchViewModel @Inject constructor(
     fun clearRecents() {
         viewModelScope.launch { recentSearchStore.clear() }
     }
+
+    private fun publishModeratedResults() {
+        val rules = moderationRules
+        if (rules == null) {
+            _uiState.update { it.copy(results = emptyList(), memberResult = null) }
+            return
+        }
+        val visibleHits = rawResults.filterNot { hit ->
+            hit.source.id in rules.hiddenTopicIds ||
+                hit.source.member?.lowercase(Locale.ROOT)?.let(rules.blockedUsernames::contains) == true
+        }
+        val visibleMember = rawMemberResult?.takeUnless { member -> isMemberBlocked(member, rules) }
+        _uiState.update {
+            it.copy(
+                results = visibleHits,
+                memberResult = visibleMember,
+                error = if (it.scope == SearchScope.MEMBERS && it.hasSearched) {
+                    if (visibleMember == null) "没有找到用户 ${it.query.trim()}" else null
+                } else {
+                    it.error
+                },
+            )
+        }
+    }
+
+    private fun isMemberBlocked(member: Member, rules: SearchModerationRules): Boolean =
+        member.username.lowercase(Locale.ROOT) in rules.blockedUsernames ||
+            member.id?.let(rules.unavailableMemberIds::contains) == true
 }

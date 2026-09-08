@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.vibe.v2ex.data.datastore.FollowedNodesStore
 import com.vibe.v2ex.data.datastore.SecureStore
 import com.vibe.v2ex.data.datastore.SettingsDataStore
+import com.vibe.v2ex.data.datastore.UnreadNotificationsStore
+import com.vibe.v2ex.data.moderation.ModerationStore
 import com.vibe.v2ex.data.remote.V2exApiV2
 import com.vibe.v2ex.data.remote.WebSessionService
 import com.vibe.v2ex.data.repository.FavoritesRepository
@@ -59,6 +61,8 @@ class AccountViewModel @Inject constructor(
     private val favoritesRepository: FavoritesRepository,
     private val followedNodesStore: FollowedNodesStore,
     private val settingsDataStore: SettingsDataStore,
+    private val moderationStore: ModerationStore,
+    private val unreadNotificationsStore: UnreadNotificationsStore,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(
         AccountUiState(
@@ -130,6 +134,9 @@ class AccountViewModel @Inject constructor(
             if (!settingsDataStore.autoSyncFollowedNodes.first()) return@launch
             webSessionService.favoriteNodeNames().getOrNull()?.let { followedNodesStore.mergeFromRemote(it) }
         }
+        moderationStore.syncSessionIdentity()
+        viewModelScope.launch { moderationStore.refreshWebsiteBlocks() }
+        viewModelScope.launch { unreadNotificationsStore.refresh() }
     }
 
     fun signOutWebSession() {
@@ -139,6 +146,8 @@ class AccountViewModel @Inject constructor(
             sessionUsername = null,
             sessionExpired = null,
         )
+        moderationStore.syncSessionIdentity()
+        viewModelScope.launch { unreadNotificationsStore.refresh() }
     }
 
     fun onPatChange(value: String) {
@@ -193,6 +202,7 @@ class AccountViewModel @Inject constructor(
                         personalAccessTokenStatus = "已验证并保存，连接为 ${member.username}",
                         personalAccessTokenStatusIsError = false,
                     )
+                    unreadNotificationsStore.refresh()
                 } else {
                     _uiState.value = _uiState.value.copy(
                         isValidatingPersonalAccessToken = false,
@@ -219,6 +229,7 @@ class AccountViewModel @Inject constructor(
             personalAccessTokenStatus = "已清除保存在本机的 Token",
             personalAccessTokenStatusIsError = false,
         )
+        viewModelScope.launch { unreadNotificationsStore.refresh() }
     }
 
     /** 只返回可控文案，不向 UI 传递可能包含请求细节的底层异常信息。 */

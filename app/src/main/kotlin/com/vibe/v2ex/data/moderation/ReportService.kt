@@ -1,10 +1,9 @@
 package com.vibe.v2ex.data.moderation
 
+import android.content.Context
 import com.vibe.v2ex.data.local.ReportEntity
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -19,10 +18,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 private const val REPORT_ENDPOINT = "https://reports.xinghelee.com/report"
 
-private val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-    timeZone = TimeZone.getTimeZone("UTC")
-}
-
 /**
  * Fire-and-forget delivery for [ModerationStore]'s local-first reports — matches the
  * server contract in the iOS project's docs/report-worker/worker.js exactly: no auth
@@ -31,6 +26,7 @@ private val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).
  */
 @Singleton
 class ReportService @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val okHttpClient: OkHttpClient,
 ) {
     /** true iff delivered (any 2xx) — the caller keeps retrying an undelivered report indefinitely. */
@@ -46,9 +42,9 @@ class ReportService @Inject constructor(
             put("reason", report.reason)
             put("reasonTitle", report.reasonTitle)
             report.note?.let { put("note", it) }
-            put("createdAt", isoFormat.format(Date(report.createdAt)))
+            put("createdAt", Instant.ofEpochMilli(report.createdAt).toString())
             report.topicId?.let { put("url", "https://www.v2ex.com/t/$it") }
-            put("appVersion", "1.0.0")
+            put("appVersion", installedVersionName())
             put("platform", "Android")
         }
         val body = Json.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), payload)
@@ -58,4 +54,8 @@ class ReportService @Inject constructor(
             okHttpClient.newCall(request).execute().use { it.isSuccessful }
         }.getOrDefault(false)
     }
+
+    @Suppress("DEPRECATION")
+    private fun installedVersionName(): String =
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
 }

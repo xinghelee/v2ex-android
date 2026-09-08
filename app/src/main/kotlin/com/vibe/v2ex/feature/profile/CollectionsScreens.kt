@@ -51,6 +51,7 @@ import com.vibe.v2ex.data.datastore.SecureStore
 import com.vibe.v2ex.data.local.FavoriteTopicEntity
 import com.vibe.v2ex.data.local.HistoryEntity
 import com.vibe.v2ex.data.model.Topic
+import com.vibe.v2ex.data.moderation.ModerationStore
 import com.vibe.v2ex.data.remote.V2exApiV1
 import com.vibe.v2ex.data.remote.V2exApiV2
 import com.vibe.v2ex.data.repository.FavoritesRepository
@@ -75,6 +76,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -206,19 +208,33 @@ private fun CollectionTopicRow(
 // MARK: - 我的收藏
 
 data class FavoritesUiState(
+    /** Visible projection; repository rows remain untouched. */
     val favorites: List<FavoriteTopicEntity> = emptyList(),
+    val rawCount: Int = 0,
     val isSyncing: Boolean = false,
 )
 
 @HiltViewModel
 class FavoritesViewModel @Inject constructor(
     private val favoritesRepository: FavoritesRepository,
+    moderationStore: ModerationStore,
 ) : ViewModel() {
     private val syncing = MutableStateFlow(false)
 
     val uiState: StateFlow<FavoritesUiState> =
-        kotlinx.coroutines.flow.combine(favoritesRepository.observeAll(), syncing) { favorites, isSyncing ->
-            FavoritesUiState(favorites, isSyncing)
+        combine(
+            favoritesRepository.observeAll(),
+            syncing,
+            moderationStore.collectionModerationRules(),
+        ) { rawFavorites, isSyncing, rules ->
+            FavoritesUiState(
+                favorites = rawFavorites.filterNot { favorite ->
+                    // FavoriteTopicEntity has no member ID; topic ID + captured author are authoritative.
+                    rules.hides(topicId = favorite.topicId, authorName = favorite.authorName)
+                },
+                rawCount = rawFavorites.size,
+                isSyncing = isSyncing,
+            )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FavoritesUiState())
 
     init {
@@ -286,12 +302,27 @@ fun FavoritesScreen(
 
 // MARK: - 浏览历史
 
+data class HistoryUiState(
+    /** Visible projection; [rawCount] is used by destructive-action copy. */
+    val entries: List<HistoryEntity> = emptyList(),
+    val rawCount: Int = 0,
+)
+
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
     private val historyRepository: HistoryRepository,
+    moderationStore: ModerationStore,
 ) : ViewModel() {
-    val entries: StateFlow<List<HistoryEntity>> = historyRepository.observeAll()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val uiState: StateFlow<HistoryUiState> = combine(
+        historyRepository.observeAll(),
+        moderationStore.collectionModerationRules(),
+    ) { rawEntries, rules ->
+        HistoryUiState(
+            // HistoryEntity has neither author nor member ID, so topic ID is the strongest safe key.
+            entries = rawEntries.filterNot { entry -> rules.hides(topicId = entry.topicId) },
+            rawCount = rawEntries.size,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HistoryUiState())
 
     init {
         viewModelScope.launch { historyRepository.prune() }
@@ -307,14 +338,15 @@ fun HistoryScreen(
     onTopicClick: (Long) -> Unit,
     viewModel: HistoryViewModel = hiltViewModel(),
 ) {
-    val entries by viewModel.entries.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
+    val entries = uiState.entries
     var showClearConfirm by remember { mutableStateOf(false) }
 
     if (showClearConfirm) {
         AlertDialog(
             onDismissRequest = { showClearConfirm = false },
             title = { Text("清空浏览历史？") },
-            text = { Text("共 ${entries.size} 条记录，清空后无法恢复。") },
+            text = { Text("共 ${uiState.rawCount} 条记录，清空后无法恢复。") },
             confirmButton = {
                 TextButton(onClick = {
                     showClearConfirm = false
@@ -329,7 +361,7 @@ fun HistoryScreen(
         title = "浏览历史",
         onBack = onBack,
         trailing = {
-            if (entries.isNotEmpty()) {
+            if (uiState.rawCount > 0) {
                 Text(
                     text = "清空",
                     fontSize = 15.sp,
@@ -351,7 +383,13 @@ fun HistoryScreen(
         ) {
             if (entries.isEmpty()) {
                 item(key = "empty") {
-                    EmptyHint("还没有浏览记录。读过的话题会出现在这里，保留 ${HistoryRepository.RETENTION_DAYS} 天。")
+                    EmptyHint(
+                        if (uiState.rawCount > 0) {
+                            "当前没有可显示的浏览记录；被屏蔽或隐藏的内容仍保留在本地。"
+                        } else {
+                            "还没有浏览记录。读过的话题会出现在这里，保留 ${HistoryRepository.RETENTION_DAYS} 天。"
+                        },
+                    )
                 }
             } else {
                 sections.forEach { (day, dayEntries) ->
@@ -413,12 +451,28 @@ private fun sameDay(a: Calendar, b: Calendar): Boolean =
 
 // MARK: - 稍后读 / 离线
 
+data class OfflineListUiState(
+    /** Visible projection; raw totals continue to describe storage and clear operations. */
+    val bundles: List<OfflineBundle> = emptyList(),
+    val rawCount: Int = 0,
+    val rawByteSize: Int = 0,
+)
+
 @HiltViewModel
 class OfflineListViewModel @Inject constructor(
     private val offlineRepository: OfflineRepository,
+    moderationStore: ModerationStore,
 ) : ViewModel() {
-    val bundles: StateFlow<List<OfflineBundle>> = offlineRepository.observeAll()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val uiState: StateFlow<OfflineListUiState> = combine(
+        offlineRepository.observeAll(),
+        moderationStore.collectionModerationRules(),
+    ) { rawBundles, rules ->
+        OfflineListUiState(
+            bundles = rawBundles.filterNot { bundle -> rules.hides(bundle.topic) },
+            rawCount = rawBundles.size,
+            rawByteSize = rawBundles.sumOf(OfflineBundle::byteSize),
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OfflineListUiState())
 
     fun remove(topicId: Long) = viewModelScope.launch { offlineRepository.remove(topicId) }
     fun clear() = viewModelScope.launch { offlineRepository.clear() }
@@ -430,9 +484,10 @@ fun OfflineListScreen(
     onTopicClick: (Long) -> Unit,
     viewModel: OfflineListViewModel = hiltViewModel(),
 ) {
-    val bundles by viewModel.bundles.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
+    val bundles = uiState.bundles
     var showClearConfirm by remember { mutableStateOf(false) }
-    val formattedSize = remember(bundles) { formatByteSize(bundles.sumOf { it.byteSize }) }
+    val formattedSize = remember(uiState.rawByteSize) { formatByteSize(uiState.rawByteSize) }
 
     if (showClearConfirm) {
         AlertDialog(
@@ -461,7 +516,7 @@ fun OfflineListScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "${bundles.size} 篇已下载",
+                                text = "${uiState.rawCount} 篇已下载",
                                 style = MaterialTheme.typography.titleSmall,
                             )
                             Text(
@@ -472,7 +527,7 @@ fun OfflineListScreen(
                                 modifier = Modifier.padding(top = 2.dp),
                             )
                         }
-                        if (bundles.isNotEmpty()) {
+                        if (uiState.rawCount > 0) {
                             Text(
                                 text = "清空",
                                 fontSize = 15.sp,
@@ -488,7 +543,13 @@ fun OfflineListScreen(
             }
             if (bundles.isEmpty()) {
                 item(key = "empty") {
-                    EmptyHint("还没有离线内容。在话题页的「⋯」里选择「保存以离线阅读」，整帖和回复都会存到本地。")
+                    EmptyHint(
+                        if (uiState.rawCount > 0) {
+                            "当前没有可显示的离线内容；被屏蔽或隐藏的快照仍保留在本地。"
+                        } else {
+                            "还没有离线内容。在话题页的「⋯」里选择「保存以离线阅读」，整帖和回复都会存到本地。"
+                        },
+                    )
                 }
             } else {
                 itemsIndexed(bundles, key = { _, bundle -> bundle.topic.id }) { index, bundle ->
@@ -526,7 +587,9 @@ private fun formatByteSize(bytes: Int): String = when {
 
 data class MyPostsUiState(
     val isTokenSet: Boolean = true,
+    /** Visible projection of [MyPostsViewModel.rawTopics]. */
     val topics: List<Topic> = emptyList(),
+    val rawTopicCount: Int = 0,
     val isLoading: Boolean = false,
 )
 
@@ -535,11 +598,20 @@ class MyPostsViewModel @Inject constructor(
     private val apiV2: V2exApiV2,
     private val apiV1: V2exApiV1,
     secureStore: SecureStore,
+    moderationStore: ModerationStore,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(MyPostsUiState(isTokenSet = secureStore.isTokenSet))
     val uiState: StateFlow<MyPostsUiState> = _uiState.asStateFlow()
+    private var rawTopics: List<Topic> = emptyList()
+    private var moderationRules: CollectionModerationRules? = null
 
     init {
+        viewModelScope.launch {
+            moderationStore.collectionModerationRules().collect { rules ->
+                moderationRules = rules
+                publishTopics()
+            }
+        }
         if (secureStore.isTokenSet) load()
     }
 
@@ -548,9 +620,19 @@ class MyPostsViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isLoading = true)
             // V2EX 只在 API 2.0 暴露当前账号；拿到用户名后走 v1 列它发过的话题。
             val username = runCatching { apiV2.me().result?.username }.getOrNull()
-            val topics = username?.let { runCatching { apiV1.topicsByMember(it) }.getOrNull() }.orEmpty()
-            _uiState.value = _uiState.value.copy(topics = topics, isLoading = false)
+            rawTopics = username?.let { runCatching { apiV1.topicsByMember(it) }.getOrNull() }.orEmpty()
+            publishTopics(isLoading = false)
         }
+    }
+
+    /** Withholds fetched topics until Room-backed rules emit, avoiding a blocked-content flash. */
+    private fun publishTopics(isLoading: Boolean = _uiState.value.isLoading) {
+        val visible = moderationRules?.let { rules -> rawTopics.filterNot(rules::hides) }.orEmpty()
+        _uiState.value = _uiState.value.copy(
+            topics = visible,
+            rawTopicCount = rawTopics.size,
+            isLoading = isLoading,
+        )
     }
 }
 

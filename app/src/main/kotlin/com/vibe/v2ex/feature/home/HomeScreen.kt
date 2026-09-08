@@ -145,7 +145,12 @@ fun HomeScreen(
             FeedPage(
                 topics = uiState.topicsByFeed[feed.key],
                 isLoading = feed.key in uiState.loadingFeeds,
+                isLoadingMore = feed.key in uiState.loadingMoreFeeds,
                 error = uiState.errorsByFeed[feed.key],
+                loadMoreError = uiState.loadMoreErrorsByFeed[feed.key],
+                hasMore = uiState.hasMoreByFeed[feed.key] == true,
+                paginationToken = uiState.paginationTokensByFeed[feed.key] ?: 0L,
+                isActive = pagerState.currentPage == page,
                 cachedAt = uiState.cachedAtByFeed[feed.key],
                 featuredBadge = when (feed) {
                     HomeFeed.Hot -> "今日最热"
@@ -157,6 +162,12 @@ fun HomeScreen(
                 showCommunityPulse = feed == HomeFeed.All && uiState.communityPulseEnabled,
                 onRefresh = {
                     if (pagerState.currentPage == page) viewModel.refresh(feed)
+                },
+                onLoadMore = { viewModel.loadMore(feed) },
+                endMessage = if (feed == HomeFeed.Hot || feed == HomeFeed.R2) {
+                    "已展示全部榜单话题"
+                } else {
+                    "没有更多话题了"
                 },
                 onTopicClick = onTopicClick,
                 onNodeClick = onNodeClick,
@@ -211,7 +222,12 @@ private fun FeedChipRail(
 private fun FeedPage(
     topics: List<Topic>?,
     isLoading: Boolean,
+    isLoadingMore: Boolean,
     error: String?,
+    loadMoreError: String?,
+    hasMore: Boolean,
+    paginationToken: Long,
+    isActive: Boolean,
     /** 非空 = 列表来自本地快照，值是快照时间（毫秒）。 */
     cachedAt: Long?,
     featuredBadge: String,
@@ -219,6 +235,8 @@ private fun FeedPage(
     offlineIds: Set<Long> = emptySet(),
     showCommunityPulse: Boolean,
     onRefresh: () -> Unit,
+    onLoadMore: () -> Unit,
+    endMessage: String,
     onTopicClick: (Long) -> Unit,
     onNodeClick: (String) -> Unit,
 ) {
@@ -251,13 +269,38 @@ private fun FeedPage(
                 }
             }
             topics.isEmpty() -> {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = TAB_BAR_CLEARANCE),
+                ) {
                     item {
-                        Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                        Box(
+                            modifier = if (hasMore) {
+                                Modifier.fillMaxWidth().padding(vertical = 48.dp)
+                            } else {
+                                Modifier.fillParentMaxSize()
+                            },
+                            contentAlignment = Alignment.Center,
+                        ) {
                             Text(
                                 text = "暂无话题",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (hasMore || loadMoreError != null) {
+                        item(key = "feed-footer") {
+                            FeedPaginationFooter(
+                                hasMore = hasMore,
+                                isLoading = isLoading,
+                                isLoadingMore = isLoadingMore,
+                                error = loadMoreError,
+                                paginationToken = paginationToken,
+                                isActive = isActive,
+                                showEnd = cachedAt == null,
+                                endMessage = endMessage,
+                                onLoadMore = onLoadMore,
                             )
                         }
                     }
@@ -310,8 +353,72 @@ private fun FeedPage(
                             )
                         }
                     }
+                    item(key = "feed-footer") {
+                        FeedPaginationFooter(
+                            hasMore = hasMore,
+                            isLoading = isLoading,
+                            isLoadingMore = isLoadingMore,
+                            error = loadMoreError,
+                            paginationToken = paginationToken,
+                            isActive = isActive,
+                            showEnd = cachedAt == null,
+                            endMessage = endMessage,
+                            onLoadMore = onLoadMore,
+                        )
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun FeedPaginationFooter(
+    hasMore: Boolean,
+    isLoading: Boolean,
+    isLoadingMore: Boolean,
+    error: String?,
+    paginationToken: Long,
+    isActive: Boolean,
+    showEnd: Boolean,
+    endMessage: String,
+    onLoadMore: () -> Unit,
+) {
+    when {
+        error != null -> {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Button(onClick = onLoadMore) { Text("重试加载更多") }
+            }
+        }
+        hasMore -> {
+            LaunchedEffect(paginationToken, isActive) {
+                if (isActive) onLoadMore()
+            }
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (isLoadingMore) CircularProgressIndicator(modifier = Modifier.size(24.dp))
+            }
+        }
+        !isLoading && showEnd -> {
+            Text(
+                text = endMessage,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+            )
         }
     }
 }

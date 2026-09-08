@@ -28,7 +28,10 @@ enum class AppIcon(
     ;
 
     private fun component(context: Context) =
-        ComponentName(context.packageName, "${MainActivity::class.java.packageName}.icon.$alias")
+        ComponentName(
+            context.packageName,
+            "${MainActivity::class.java.name.substringBeforeLast('.')}.icon.$alias",
+        )
 
     companion object {
         /** 与 ic_launcher_background.xml 同一组渐变，设置页里画预览用。 */

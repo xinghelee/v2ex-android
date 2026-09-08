@@ -35,7 +35,7 @@ private val SECTIONS = listOf(
         "V2EX 上的内容由用户发布。本应用对骚扰、仇恨言论、色情、暴力等冒犯性内容零容忍。",
     ),
     AgreementSection(Icons.Filled.Flag, "举报", "遇到不当内容可随时举报，内容会立即从你的列表中隐藏。"),
-    AgreementSection(Icons.Filled.Block, "屏蔽", "你可以屏蔽特定用户或关键词，其内容将不再出现。"),
+    AgreementSection(Icons.Filled.Block, "屏蔽", "你可以同步 V2EX 官网的用户屏蔽名单，其内容将不再出现。"),
     AgreementSection(Icons.Filled.CheckCircle, "24 小时内处理", "所有举报会在 24 小时内由开发者审核处理。"),
     AgreementSection(Icons.Filled.Email, "联系方式", "如有问题请联系 hi@xinghelee.com"),
 )

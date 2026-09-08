@@ -52,6 +52,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -90,6 +91,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vibe.v2ex.data.model.Topic
+import com.vibe.v2ex.data.moderation.ReportTargetType
 import com.vibe.v2ex.designsystem.Avatar
 import com.vibe.v2ex.designsystem.CardGroupItem
 import com.vibe.v2ex.designsystem.ContentBlock
@@ -127,6 +129,7 @@ fun TopicScreen(
     var showShareCard by remember { mutableStateOf(false) }
     var showShareText by remember { mutableStateOf(false) }
     var highlightedReplyId by remember { mutableStateOf<Long?>(null) }
+    var reportTarget by remember { mutableStateOf<TopicModerationTarget?>(null) }
 
     val jumpToFloor: (Int) -> Unit = { floor ->
         val target = uiState.replies.firstOrNull { it.floor == floor }
@@ -154,7 +157,7 @@ fun TopicScreen(
         }
     }
 
-    if (showShareCard) {
+    if (showShareCard && !uiState.isTopicHidden) {
         uiState.topic?.let { topic ->
             TopicShareCardSheet(
                 topic = topic,
@@ -163,7 +166,7 @@ fun TopicScreen(
             )
         }
     }
-    if (showShareText) {
+    if (showShareText && !uiState.isTopicHidden) {
         uiState.topic?.let { topic ->
             TopicShareTextSheet(
                 topic = topic,
@@ -174,10 +177,52 @@ fun TopicScreen(
         }
     }
 
+    reportTarget?.let { target ->
+        val currentUsername = uiState.currentUsername
+        val isSelf = !currentUsername.isNullOrBlank() &&
+            target.author.equals(currentUsername, ignoreCase = true)
+        val alreadyBlocked = target.author.lowercase(Locale.ROOT) in uiState.blockedUsernames
+        val canBlock = uiState.isWebSessionActive &&
+            !currentUsername.isNullOrBlank() &&
+            target.author.isNotBlank() &&
+            !isSelf &&
+            !alreadyBlocked
+        val blockHint = when {
+            isSelf -> "不能屏蔽自己"
+            alreadyBlocked -> "已在官网屏蔽名单中"
+            !uiState.isWebSessionActive || currentUsername.isNullOrBlank() -> "需要先登录 V2EX 网页账号"
+            else -> "官网确认后，屏蔽此人的话题和回复"
+        }
+        TopicReportSheet(
+            target = target,
+            isSubmitting = uiState.moderationActionKey != null,
+            canBlockAuthor = canBlock,
+            blockHint = blockHint,
+            onDismiss = { reportTarget = null },
+            onSubmit = { reason, note, alsoBlock ->
+                viewModel.report(target, reason, note, alsoBlock)
+            },
+        )
+    }
+
     LaunchedEffect(uiState.message) {
         uiState.message?.let { message ->
             snackbarHostState.showSnackbar(message)
             viewModel.consumeMessage()
+        }
+    }
+
+    LaunchedEffect(uiState.moderationCompletion) {
+        val completion = uiState.moderationCompletion ?: return@LaunchedEffect
+        reportTarget = null
+        viewModel.consumeModerationCompletion()
+        if (completion.closeTopic) onBack()
+    }
+
+    LaunchedEffect(uiState.isTopicHidden) {
+        if (uiState.isTopicHidden) {
+            showShareCard = false
+            showShareText = false
         }
     }
 
@@ -224,9 +269,34 @@ fun TopicScreen(
                     val topic = uiState.topic ?: return@TopicTopBar
                     context.startActivity(Intent(Intent.ACTION_VIEW, topic.webUrl.toUri()))
                 },
+                topicAuthor = uiState.topic?.authorName.orEmpty(),
+                topicAuthorIsSelf = uiState.topic?.authorName?.equals(
+                    uiState.currentUsername,
+                    ignoreCase = true,
+                ) == true,
+                topicAuthorBlocked = uiState.topic?.authorName
+                    ?.lowercase(Locale.ROOT)
+                    ?.let(uiState.blockedUsernames::contains) == true,
+                contentHidden = !uiState.moderationReady || uiState.isTopicHidden,
+                moderationBusy = uiState.moderationActionKey != null,
+                onReportTopic = {
+                    uiState.topic?.toModerationTarget()?.let { reportTarget = it }
+                },
+                onBlockTopicAuthor = {
+                    uiState.topic?.toModerationTarget()?.let(viewModel::blockAuthor)
+                },
             )
 
-            if (uiState.loadedFromOffline && uiState.topic != null) {
+            if (uiState.moderationActionKey != null) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+
+            if (
+                uiState.moderationReady &&
+                uiState.loadedFromOffline &&
+                uiState.topic != null &&
+                !uiState.isTopicHidden
+            ) {
                 OfflineNoticeBar(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     hint = "连网后重新进入可更新",
@@ -236,6 +306,17 @@ fun TopicScreen(
             val topic = uiState.topic
             val error = uiState.error
             when {
+                !uiState.moderationReady -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+                uiState.isTopicHidden -> HiddenTopicState(
+                    isRestoring = uiState.moderationActionKey != null,
+                    onRestore = viewModel::restoreHiddenTopic,
+                    modifier = Modifier.fillMaxSize(),
+                )
                 topic == null && uiState.isLoading -> Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -322,6 +403,19 @@ fun TopicScreen(
                                         composerFocus.requestFocus()
                                     },
                                     onQuoteClick = jumpToFloor,
+                                    moderationBusy = uiState.moderationActionKey != null,
+                                    authorIsSelf = floorReply.reply.authorName.equals(
+                                        uiState.currentUsername,
+                                        ignoreCase = true,
+                                    ),
+                                    authorBlocked = floorReply.reply.authorName
+                                        .lowercase(Locale.ROOT) in uiState.blockedUsernames,
+                                    onReport = {
+                                        reportTarget = floorReply.toModerationTarget(topicId)
+                                    },
+                                    onBlockAuthor = {
+                                        viewModel.blockAuthor(floorReply.toModerationTarget(topicId))
+                                    },
                                 )
                             }
                         }
@@ -331,7 +425,7 @@ fun TopicScreen(
                                     text = when {
                                         uiState.onlyPoster -> "楼主还没有回复"
                                         uiState.onlyMine -> "还没有与你有关的回复"
-                                        else -> "还没有回复"
+                                        else -> if (topic.replies > 0) "暂无可显示的回复" else "还没有回复"
                                     },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -345,26 +439,28 @@ fun TopicScreen(
             }
         }
 
-        ReplyComposerBar(
-            draft = uiState.replyDraft,
-            isSending = uiState.isSendingReply,
-            isLoggedIn = uiState.isWebSessionActive,
-            mentionCandidates = mentionCandidates(uiState),
-            focusRequester = composerFocus,
-            onDraftChange = viewModel::onReplyDraftChange,
-            onInsertMention = { name ->
-                val text = uiState.replyDraft
-                val at = text.lastIndexOf('@')
-                if (at >= 0) viewModel.onReplyDraftChange(text.take(at) + "@$name ")
-            },
-            onSend = viewModel::sendReply,
-            onOpenWebReply = {
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW, "https://www.v2ex.com/t/$topicId#reply".toUri()),
-                )
-            },
-            modifier = Modifier.align(Alignment.BottomCenter),
-        )
+        if (uiState.moderationReady && !uiState.isTopicHidden) {
+            ReplyComposerBar(
+                draft = uiState.replyDraft,
+                isSending = uiState.isSendingReply,
+                isLoggedIn = uiState.isWebSessionActive,
+                mentionCandidates = mentionCandidates(uiState),
+                focusRequester = composerFocus,
+                onDraftChange = viewModel::onReplyDraftChange,
+                onInsertMention = { name ->
+                    val text = uiState.replyDraft
+                    val at = text.lastIndexOf('@')
+                    if (at >= 0) viewModel.onReplyDraftChange(text.take(at) + "@$name ")
+                },
+                onSend = viewModel::sendReply,
+                onOpenWebReply = {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, "https://www.v2ex.com/t/$topicId#reply".toUri()),
+                    )
+                },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
 
         SnackbarHost(
             hostState = snackbarHostState,
@@ -377,6 +473,22 @@ fun TopicScreen(
 }
 
 private fun replyListOffset(visibleReplyCount: Int): Int = 3 + if (visibleReplyCount > 1) 1 else 0
+
+private fun Topic.toModerationTarget(): TopicModerationTarget = TopicModerationTarget(
+    targetType = ReportTargetType.TOPIC,
+    targetId = id,
+    topicId = id,
+    author = authorName,
+    excerpt = "$title\n${content.orEmpty()}".trim().take(500),
+)
+
+private fun FloorReply.toModerationTarget(topicId: Long): TopicModerationTarget = TopicModerationTarget(
+    targetType = ReportTargetType.REPLY,
+    targetId = reply.id,
+    topicId = topicId,
+    author = reply.authorName,
+    excerpt = reply.content.take(500),
+)
 
 /**
  * 草稿末尾正在输入的 `@name` 片段 → 本帖参与者中前缀匹配的候选（最近发言优先）。
@@ -394,11 +506,16 @@ private fun mentionCandidates(uiState: TopicUiState): List<String> {
     uiState.replies.asReversed().forEach { item ->
         item.reply.authorName.takeIf(String::isNotBlank)?.let(ordered::add)
     }
-    uiState.topic?.authorName?.takeIf(String::isNotBlank)?.let(ordered::add)
+    uiState.topic?.authorName
+        ?.takeIf { it.isNotBlank() && it.lowercase(Locale.ROOT) !in uiState.blockedUsernames }
+        ?.let(ordered::add)
+    uiState.currentUsername?.let { current ->
+        ordered.removeAll { it.equals(current, ignoreCase = true) }
+    }
 
-    val needle = fragment.lowercase()
+    val needle = fragment.lowercase(Locale.ROOT)
     return ordered
-        .filter { needle.isEmpty() || it.lowercase().startsWith(needle) }
+        .filter { needle.isEmpty() || it.lowercase(Locale.ROOT).startsWith(needle) }
         .take(8)
 }
 
@@ -416,6 +533,13 @@ private fun TopicTopBar(
     onShareLink: () -> Unit,
     onShareCard: () -> Unit,
     onOpenInBrowser: () -> Unit,
+    topicAuthor: String,
+    topicAuthorIsSelf: Boolean,
+    topicAuthorBlocked: Boolean,
+    contentHidden: Boolean,
+    moderationBusy: Boolean,
+    onReportTopic: () -> Unit,
+    onBlockTopicAuthor: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     // 返回键独立在左、节点名居中（iOS principal 位）—— 两个功能拉开距离，避免误点。
@@ -456,6 +580,7 @@ private fun TopicTopBar(
             modifier = Modifier.align(Alignment.CenterEnd),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+        if (!contentHidden) {
         if (favoriteSyncing) {
             Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -513,7 +638,29 @@ private fun TopicTopBar(
                         onOpenInBrowser()
                     },
                 )
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("举报这个话题") },
+                    enabled = !moderationBusy,
+                    onClick = {
+                        menuExpanded = false
+                        onReportTopic()
+                    },
+                )
+                if (topicAuthor.isNotBlank() && !topicAuthorBlocked) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(if (topicAuthorIsSelf) "不能屏蔽自己" else "屏蔽 @$topicAuthor")
+                        },
+                        enabled = !moderationBusy && !topicAuthorIsSelf,
+                        onClick = {
+                            menuExpanded = false
+                            onBlockTopicAuthor()
+                        },
+                    )
+                }
             }
+        }
         }
         }
     }
@@ -976,8 +1123,14 @@ private fun ReplyRow(
     onAuthorClick: (String) -> Unit,
     onReplyClick: () -> Unit,
     onQuoteClick: (Int) -> Unit,
+    moderationBusy: Boolean,
+    authorIsSelf: Boolean,
+    authorBlocked: Boolean,
+    onReport: () -> Unit,
+    onBlockAuthor: () -> Unit,
 ) {
     val reply = floorReply.reply
+    var menuExpanded by remember(reply.id) { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1050,6 +1203,45 @@ private fun ReplyRow(
                         .clickable(onClick = onReplyClick)
                         .padding(6.dp),
                 )
+                Box {
+                    IconButton(
+                        onClick = { menuExpanded = true },
+                        enabled = !moderationBusy,
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreHoriz,
+                            contentDescription = "举报或屏蔽 ${reply.authorName} 的这条回复",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("举报这条回复") },
+                            enabled = !moderationBusy,
+                            onClick = {
+                                menuExpanded = false
+                                onReport()
+                            },
+                        )
+                        if (reply.authorName.isNotBlank() && !authorBlocked) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(if (authorIsSelf) "不能屏蔽自己" else "屏蔽 @${reply.authorName}")
+                                },
+                                enabled = !moderationBusy && !authorIsSelf,
+                                onClick = {
+                                    menuExpanded = false
+                                    onBlockAuthor()
+                                },
+                            )
+                        }
+                    }
+                }
             }
             floorReply.quoted?.let { quoted ->
                 QuoteCapsule(quoted = quoted, onClick = quoted.floor?.let { { onQuoteClick(it) } })
@@ -1259,6 +1451,50 @@ private fun ReplyComposerBar(
                             modifier = Modifier.size(18.dp),
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HiddenTopicState(
+    isRestoring: Boolean,
+    onRestore: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier.padding(horizontal = 20.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        V2Card {
+            Column(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = "这个话题已被举报并隐藏",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    text = "本页不再显示正文和回复。恢复后会删除本地举报记录；已发送到服务端的举报无法撤回。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                TextButton(
+                    onClick = onRestore,
+                    enabled = !isRestoring,
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    if (isRestoring) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(if (isRestoring) "正在恢复…" else "恢复显示")
                 }
             }
         }

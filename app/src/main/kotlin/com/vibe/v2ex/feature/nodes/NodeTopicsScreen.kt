@@ -50,6 +50,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -223,38 +224,50 @@ fun NodeTopicsScreen(
                                 )
                             }
                         }
-                        if (!uiState.reachedEnd) {
-                            item(key = "load-more") {
-                                val loadMoreError = uiState.loadMoreError
-                                if (loadMoreError != null) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 12.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    ) {
-                                        Text(
-                                            text = loadMoreError,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                        Button(onClick = viewModel::loadMore) { Text("重试加载更多") }
-                                    }
-                                } else {
-                                    // 末行出现即翻页；错误态切换为显式重试，不会按相同 key 无限请求。
-                                    LaunchedEffect(uiState.raw.size) { viewModel.loadMore() }
-                                    Box(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        if (uiState.isLoadingMore) {
-                                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                        }
-                                    }
+                    }
+                }
+                // Pagination follows the raw cursor, not the moderated row count. A fully hidden or
+                // overlap-only page must still be able to advance to the next website/API page.
+                if (uiState.raw.isNotEmpty() && !uiState.reachedEnd) {
+                    item(key = "load-more") {
+                        val loadMoreError = uiState.loadMoreError
+                        if (loadMoreError != null) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = loadMoreError,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Button(onClick = viewModel::loadMore) { Text("重试加载更多") }
+                            }
+                        } else {
+                            // The token advances even when the page adds zero unique rows.
+                            LaunchedEffect(uiState.paginationToken) { viewModel.loadMore() }
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (uiState.isLoadingMore) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
                                 }
                             }
                         }
+                    }
+                } else if (uiState.raw.isNotEmpty() && uiState.cachedAt == null && !uiState.isLoading) {
+                    item(key = "list-end") {
+                        Text(
+                            text = "没有更多话题了",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                        )
                     }
                 }
             }

@@ -164,6 +164,9 @@ interface ReportDao {
     @Query("SELECT * FROM reports WHERE deliveredAt IS NULL")
     suspend fun pending(): List<ReportEntity>
 
+    @Query("DELETE FROM reports WHERE targetType = :targetType AND targetId = :targetId")
+    suspend fun deleteForTarget(targetType: String, targetId: String)
+
     @Update
     suspend fun update(entity: ReportEntity)
 }

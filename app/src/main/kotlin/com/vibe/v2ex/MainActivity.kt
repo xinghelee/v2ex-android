@@ -65,6 +65,11 @@ class MainActivity : ComponentActivity() {
         chosenAppIcon?.let { AppIcon.sync(this, it) }
     }
 
+    override fun onResume() {
+        super.onResume()
+        appViewModel.onForeground()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
