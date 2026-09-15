@@ -40,6 +40,7 @@ class SettingsDataStore @Inject constructor(
         val COMMUNITY_PULSE_ENABLED = booleanPreferencesKey("community_pulse_enabled")
         val LIQUID_GLASS_ENABLED = booleanPreferencesKey("liquid_glass_enabled")
         val APP_ICON = stringPreferencesKey("app_icon")
+        val ENCRYPTED_DNS_ENABLED = booleanPreferencesKey("encrypted_dns_enabled")
     }
 
     val theme: Flow<AppTheme> = context.settingsDataStore.data.map { prefs ->
@@ -79,6 +80,13 @@ class SettingsDataStore @Inject constructor(
     val liquidGlassEnabled: Flow<Boolean> =
         context.settingsDataStore.data.map { it[Keys.LIQUID_GLASS_ENABLED] ?: true }
 
+    /**
+     * DoH 解析。默认**关**：企业 split-DNS / VPN 私有 DNS 下开启会解析不到内网域名，
+     * 这个代价只能由主动打开的人承担。
+     */
+    val encryptedDnsEnabled: Flow<Boolean> =
+        context.settingsDataStore.data.map { it[Keys.ENCRYPTED_DNS_ENABLED] ?: false }
+
     /** 用户选的桌面图标（AppIcon 枚举名）。真正切 activity-alias 的动作等 App 退到后台再做。 */
     val appIcon: Flow<String?> =
         context.settingsDataStore.data.map { it[Keys.APP_ICON] }
@@ -104,6 +112,8 @@ class SettingsDataStore @Inject constructor(
         context.settingsDataStore.edit { it[Keys.COMMUNITY_PULSE_ENABLED] = enabled }
     suspend fun setLiquidGlassEnabled(enabled: Boolean) =
         context.settingsDataStore.edit { it[Keys.LIQUID_GLASS_ENABLED] = enabled }
+    suspend fun setEncryptedDnsEnabled(enabled: Boolean) =
+        context.settingsDataStore.edit { it[Keys.ENCRYPTED_DNS_ENABLED] = enabled }
 
     suspend fun setAppIcon(name: String) =
         context.settingsDataStore.edit { it[Keys.APP_ICON] = name }

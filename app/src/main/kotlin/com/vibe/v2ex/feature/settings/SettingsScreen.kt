@@ -349,6 +349,20 @@ fun SettingsScreen(
                 checked = uiState.communityPulseEnabled,
                 onCheckedChange = viewModel::setCommunityPulseEnabled,
             )
+            InsetDivider()
+            SwitchRow(
+                label = "加密 DNS 解析",
+                subtitle = "域名解析改走 Cloudflare 与阿里云",
+                checked = uiState.encryptedDnsEnabled,
+                onCheckedChange = viewModel::setEncryptedDnsEnabled,
+            )
+            Text(
+                "开启后，你打开的网址所属域名（含帖子里的第三方图床）会发给 Cloudflare 和阿里云解析。" +
+                    "这能绕开本地网络的 DNS 劫持与广告注入，但不解决 IP 层封锁；两家都不通时自动回退系统 DNS。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
