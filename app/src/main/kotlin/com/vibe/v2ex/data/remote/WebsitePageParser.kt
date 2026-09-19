@@ -37,6 +37,8 @@ internal data class WebsiteMemberBlockPage(
     val actionPath: String,
 )
 
+internal data class WebsiteNodeFavoritePage(val following: Boolean, val nodeId: Long, val actionPath: String)
+
 /** Pure, side-effect-free parsers shared by website flows and JVM fixture tests. */
 internal object WebsitePageParser {
     fun publicTopics(
@@ -115,6 +117,19 @@ internal object WebsitePageParser {
                 }
             }.getOrDefault(false)
         }
+    }
+
+    /** Missing or conflicting buttons never imply an unfollowed node. */
+    fun nodeFavoritePage(html: String): WebsiteNodeFavoritePage? {
+        val candidates = Jsoup.parse(html).select("a[href]").mapNotNull { link ->
+            val match = NODE_FAVORITE_ACTION.matchEntire(link.attr("href")) ?: return@mapNotNull null
+            val following = match.groupValues[1] == "unfavorite"
+            val labels = if (following) setOf("取消收藏", "unfavorite") else setOf("加入收藏", "favorite this node")
+            if (link.text().trim().lowercase(Locale.US) !in labels) return@mapNotNull null
+            val id = match.groupValues[2].toLongOrNull()?.takeIf { it > 0 } ?: return@mapNotNull null
+            WebsiteNodeFavoritePage(following, id, link.attr("href"))
+        }
+        return candidates.distinct().singleOrNull()
     }
 
     /** Only accepts one real Block/Unblock input whose label and exact local action agree. */
@@ -199,6 +214,7 @@ internal object WebsitePageParser {
     private val TOPIC_CLASS = Regex("""t_[0-9]+""")
     private val TOPIC_ID = Regex("""^/t/([0-9]+)(?:[?#/].*)?$""")
     private val MEMBER_PATH = Regex("""^/member/([A-Za-z0-9_]+)$""")
+    private val NODE_FAVORITE_ACTION = Regex("""^/(favorite|unfavorite)/node/([1-9][0-9]*)\?once=[0-9]+$""")
     private val NODE_PATH = Regex("""^/go/([A-Za-z0-9_-]+)$""")
     private val MEMBER_BLOCK_ACTION = Regex(
         """(?:^|[;\s{])(?:window\.)?location\.href\s*=\s*(['"])(/(block|unblock)/([0-9]+)\?once=[0-9]+)\1""",

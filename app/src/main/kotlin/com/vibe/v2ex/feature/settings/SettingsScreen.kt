@@ -152,11 +152,11 @@ fun SettingsScreen(
             )
             InsetDivider()
             SwitchRow(
-                label = "自动同步关注节点",
+                label = "自动导入网页关注节点",
                 subtitle = if (uiState.isWebSessionActive) {
-                    "登录后自动同步网页收藏的节点"
+                    "自动导入网页收藏；手动关注与取消关注始终同步官网"
                 } else {
-                    "登录 V2EX 后自动同步网页收藏的节点"
+                    "网页登录后自动导入；未登录时仅保存本地关注"
                 },
                 checked = uiState.autoSyncFollowedNodes,
                 enabled = uiState.isWebSessionActive,

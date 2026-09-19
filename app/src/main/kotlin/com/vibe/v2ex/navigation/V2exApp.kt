@@ -42,6 +42,9 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.stateIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
+import com.vibe.v2ex.designsystem.LocalContentUriHandler
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -171,7 +174,20 @@ fun V2exApp(
         if (deepLinkUri != null) onDeepLinkHandled()
     }
 
-    CompositionLocalProvider(LocalTabBarClearance provides clearance) {
+    val browserUriHandler = LocalUriHandler.current
+    val contentUriHandler = remember(navController, browserUriHandler) {
+        object : UriHandler {
+            override fun openUri(uri: String) {
+                val route = contentRouteForUrl(uri)
+                if (route != null) navController.navigate(route)
+                else browserUriHandler.openUri(uri)
+            }
+        }
+    }
+    CompositionLocalProvider(
+        LocalTabBarClearance provides clearance,
+        LocalContentUriHandler provides contentUriHandler,
+    ) {
         androidx.compose.material3.Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             // 各屏幕自己做 statusBarsPadding；Scaffold 再注入系统栏 inset 会把顶部垫两次。
@@ -396,22 +412,7 @@ private fun AppNavHost(
     }
 }
 
-internal fun Uri.toTopicRoute(): Route.Topic? {
-    if (scheme != "https" && scheme != "http") return null
-    val normalizedHost = host?.lowercase() ?: return null
-    if (normalizedHost !in setOf("v2ex.com", "www.v2ex.com", "global.v2ex.com", "origin.v2ex.com", "edge.v2ex.com")) {
-        return null
-    }
-    val topicId = Regex("^/t/(\\d+)").find(path.orEmpty())?.groupValues?.getOrNull(1)?.toLongOrNull()
-        ?: return null
-    val floor = Regex("^reply(\\d+)$", RegexOption.IGNORE_CASE)
-        .matchEntire(fragment.orEmpty())
-        ?.groupValues
-        ?.getOrNull(1)
-        ?.toIntOrNull()
-        ?.takeIf { it > 0 }
-    return Route.Topic(topicId = topicId, initialFloor = floor)
-}
+internal fun Uri.toTopicRoute(): Route.Topic? = topicRouteForUrl(toString())
 
 /** 安卓常规通栏底栏（iOS 设计语言的皮肤）：卡片白底 + 0.5dp 顶部细线，accent 选中态。 */
 @Composable

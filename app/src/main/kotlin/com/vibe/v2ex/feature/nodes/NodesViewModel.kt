@@ -24,6 +24,8 @@ data class NodesUiState(
     val avatarsByName: Map<String, String> = emptyMap(),
     val query: String = "",
     val followedNames: List<String> = emptyList(),
+    val updatingNames: Set<String> = emptySet(),
+    val followError: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
 ) {
@@ -75,6 +77,11 @@ class NodesViewModel @Inject constructor(
     init {
         refresh()
         viewModelScope.launch {
+            followedNodesStore.updatingNames.collect { names ->
+                _uiState.update { it.copy(updatingNames = names) }
+            }
+        }
+        viewModelScope.launch {
             followedNodesStore.names.collect { names ->
                 _uiState.update { it.copy(followedNames = names) }
             }
@@ -115,6 +122,14 @@ class NodesViewModel @Inject constructor(
     }
 
     fun removeFollowed(name: String) {
-        viewModelScope.launch { followedNodesStore.remove(name) }
+        if (name in followedNodesStore.updatingNames.value) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(followError = null) }
+            followedNodesStore.setFollowing(name, following = false).onFailure { error ->
+                _uiState.update { it.copy(followError = error.message ?: "取消关注失败，请重试") }
+            }
+        }
     }
+
+    fun dismissFollowError() { _uiState.update { it.copy(followError = null) } }
 }

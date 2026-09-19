@@ -23,6 +23,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +37,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -48,9 +51,12 @@ import coil3.request.ImageRequest
 import coil3.size.Precision
 import coil3.size.Scale
 
+/** Native routing is scoped to reading content, leaving explicit browser actions intact. */
+val LocalContentUriHandler = staticCompositionLocalOf<UriHandler?> { null }
+
 /**
- * Renders parsed [ContentBlock]s. Text is selectable; links open via the default
- * uri handler (LinkAnnotation.Url → LocalUriHandler). Images shrink to the column
+ * Renders parsed [ContentBlock]s. Text is selectable; content links use native routing
+ * when provided (LinkAnnotation.Url → LocalUriHandler). Images shrink to the column
  * width but stickers stay at intrinsic size (ContentScale.Inside never upscales);
  * see [ContentImage] for how 长截图 are bounded.
  */
@@ -70,25 +76,27 @@ fun ContentBlocksView(
         fontSize = baseSize.sp,
         lineHeight = (baseSize + extraSpacing).sp,
     )
-    SelectionContainer(modifier = modifier) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            blocks.forEach { block ->
-                when (block) {
-                    is ContentBlock.Paragraph -> Text(
-                        text = block.text.withLinkColor(linkColor),
-                        style = readerStyle,
-                    )
-                    is ContentBlock.Code -> CodeBlock(block.code, baseSize, reading.monoFont)
-                    is ContentBlock.Quote -> QuoteBlock(
-                        block.text.withLinkColor(linkColor),
-                        readerStyle,
-                        extraSpacing,
-                    )
-                    is ContentBlock.ListBlock -> ListBlockView(block.items, readerStyle, linkColor)
-                    is ContentBlock.Image -> ContentImage(block.url)
-                    ContentBlock.Rule -> HorizontalDivider(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
-                    )
+    CompositionLocalProvider(LocalUriHandler provides (LocalContentUriHandler.current ?: LocalUriHandler.current)) {
+        SelectionContainer(modifier = modifier) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                blocks.forEach { block ->
+                    when (block) {
+                        is ContentBlock.Paragraph -> Text(
+                            text = block.text.withLinkColor(linkColor),
+                            style = readerStyle,
+                        )
+                        is ContentBlock.Code -> CodeBlock(block.code, baseSize, reading.monoFont)
+                        is ContentBlock.Quote -> QuoteBlock(
+                            block.text.withLinkColor(linkColor),
+                            readerStyle,
+                            extraSpacing,
+                        )
+                        is ContentBlock.ListBlock -> ListBlockView(block.items, readerStyle, linkColor)
+                        is ContentBlock.Image -> ContentImage(block.url)
+                        ContentBlock.Rule -> HorizontalDivider(
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
+                        )
+                    }
                 }
             }
         }

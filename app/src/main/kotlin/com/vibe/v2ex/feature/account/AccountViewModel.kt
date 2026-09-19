@@ -132,7 +132,7 @@ class AccountViewModel @Inject constructor(
         viewModelScope.launch { favoritesRepository.syncFromRemote() }
         viewModelScope.launch {
             if (!settingsDataStore.autoSyncFollowedNodes.first()) return@launch
-            webSessionService.favoriteNodeNames().getOrNull()?.let { followedNodesStore.mergeFromRemote(it) }
+            followedNodesStore.syncFromRemote()
         }
         moderationStore.syncSessionIdentity()
         viewModelScope.launch { moderationStore.refreshWebsiteBlocks() }

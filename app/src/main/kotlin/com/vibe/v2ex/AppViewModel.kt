@@ -11,7 +11,6 @@ import com.vibe.v2ex.data.datastore.SecureStore
 import com.vibe.v2ex.data.datastore.SettingsDataStore
 import com.vibe.v2ex.data.datastore.UnreadNotificationsStore
 import com.vibe.v2ex.data.moderation.ModerationStore
-import com.vibe.v2ex.data.remote.WebSessionService
 import com.vibe.v2ex.data.repository.AutoOfflineCoordinator
 import com.vibe.v2ex.feature.agreement.CURRENT_AGREEMENT_VERSION
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -47,7 +46,6 @@ private data class AppearanceState(
 class AppViewModel @Inject constructor(
     settingsDataStore: SettingsDataStore,
     private val secureStore: SecureStore,
-    private val webSessionService: WebSessionService,
     private val followedNodesStore: FollowedNodesStore,
     private val autoOfflineCoordinator: AutoOfflineCoordinator,
     private val moderationStore: ModerationStore,
@@ -86,9 +84,7 @@ class AppViewModel @Inject constructor(
         viewModelScope.launch {
             if (!secureStore.isWebSessionActive) return@launch
             if (!settingsDataStore.autoSyncFollowedNodes.first()) return@launch
-            webSessionService.favoriteNodeNames().getOrNull()?.let { remote ->
-                followedNodesStore.mergeFromRemote(remote)
-            }
+            followedNodesStore.syncFromRemote()
         }
         // 关注节点自动离线（开关 / Wi-Fi / 30 分钟节流都在协调器里）。
         viewModelScope.launch {

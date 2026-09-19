@@ -44,6 +44,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -93,6 +95,14 @@ fun NodesScreen(
     viewModel: NodesViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    uiState.followError?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissFollowError,
+            title = { Text("关注操作失败") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = viewModel::dismissFollowError) { Text("知道了") } },
+        )
+    }
     var editMode by remember { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
 
@@ -294,6 +304,7 @@ private fun FollowedNodesGrid(
                                             title = uiState.displayTitle(name),
                                             node = uiState.node(name),
                                             editMode = editMode,
+                                            isUpdating = name in uiState.updatingNames,
                                             onRemove = { onRemoveFollowed(name) },
                                             onClick = { onNodeClick(name) },
                                         )
@@ -320,6 +331,7 @@ private fun FollowedNodeCard(
     title: String,
     node: Node?,
     editMode: Boolean,
+    isUpdating: Boolean,
     onRemove: () -> Unit,
     onClick: () -> Unit,
 ) {
@@ -371,9 +383,12 @@ private fun FollowedNodeCard(
                 if (editMode) {
                     IconButton(
                         onClick = onRemove,
+                        enabled = !isUpdating,
                         modifier = Modifier.size(44.dp),
                     ) {
-                        Icon(
+                        if (isUpdating) {
+                            CircularProgressIndicator(modifier = Modifier.size(19.dp), strokeWidth = 2.dp)
+                        } else Icon(
                             imageVector = Icons.Filled.RemoveCircle,
                             contentDescription = "取消关注 $title",
                             tint = MaterialTheme.colorScheme.error,

@@ -5,6 +5,8 @@ import com.vibe.v2ex.data.model.Topic
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.CacheControl
@@ -492,16 +494,39 @@ class WebSessionService @Inject constructor(
         }
     }
 
-    suspend fun setFollowNode(nodeName: String, following: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
-            val nodePage = fetchDocument("$BASE/go/$nodeName")
-            val action = if (following) "favorite" else "unfavorite"
-            val href = nodePage.select("a[href*=/$action/node/]").firstOrNull()?.attr("href")
-                ?: error("missing $action link")
-            val request = Request.Builder().url(BASE + href).build()
-            okHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) error("$action node failed: ${response.code}")
+    /** Use the exact current action, then re-read the node to confirm its ID and state. */
+    suspend fun setFollowNode(cookieHeader: String, nodeName: String, following: Boolean): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            websiteResult("更新官网节点关注失败，请检查网络后重试") {
+                val cookie = validCookie(cookieHeader)
+                if (!WEBSITE_NODE_NAME.matches(nodeName)) websiteFailure("节点名称无效")
+                val path = "/go/$nodeName"
+                val before = readNodeFavoritePage(path, cookie)
+                if (before.following != following) {
+                    currentCoroutineContext().ensureActive()
+                    val response = executeWebsiteGet(
+                        path = before.actionPath,
+                        cookieHeader = cookie,
+                        userAgent = MOBILE_USER_AGENT,
+                        refererPath = path,
+                    )
+                    validateWebsitePage(response, operation = "更新节点关注")
+                    val after = readNodeFavoritePage(path, cookie)
+                    if (after.nodeId != before.nodeId || after.following != following) {
+                        websiteFailure("官网尚未确认${if (following) "关注" else "取消关注"}，请重试")
+                    }
+                }
             }
+        }
+
+    private fun readNodeFavoritePage(path: String, cookie: String): WebsiteNodeFavoritePage {
+        val response = executeWebsiteGet(path, cookie, MOBILE_USER_AGENT)
+        validateWebsitePage(response, operation = "读取节点关注状态", expectedPath = path)
+        return WebsitePageParser.nodeFavoritePage(response.html) ?: run {
+            if (Jsoup.parse(response.html).select("a[href]").any {
+                    it.attr("href").substringBefore('?') == "/signin"
+                }) websiteFailure("网页会话已失效，请重新登录 V2EX")
+            websiteFailure("无法读取官网节点关注状态，请确认节点可访问后重试")
         }
     }
 
@@ -583,12 +608,16 @@ class WebSessionService @Inject constructor(
     }
 
     /** 网页「我收藏的节点」（/my/nodes）— API 2.0 没有关注节点接口。 */
-    suspend fun favoriteNodeNames(): Result<List<String>> = withContext(Dispatchers.IO) {
-        runCatching {
-            val doc = fetchDocument("$BASE/my/nodes")
-            if (doc.select("a[href*=/signin]").isNotEmpty() && doc.select("a[href^=/go/]").isEmpty()) error("未登录")
+    suspend fun favoriteNodeNames(cookieHeader: String): Result<List<String>> = withContext(Dispatchers.IO) {
+        websiteResult("读取官网关注节点失败，请检查网络后重试") {
+            val response = executeWebsiteGet("/my/nodes", validCookie(cookieHeader), MOBILE_USER_AGENT)
+            validateWebsitePage(response, operation = "读取关注节点", expectedPath = "/my/nodes")
+            val doc = Jsoup.parse(response.html)
+            if (doc.select("a[href]").any { it.attr("href").substringBefore('?') == "/signin" }) {
+                websiteFailure("网页会话已失效，请重新登录 V2EX")
+            }
             doc.select("a[href^=/go/]")
-                .mapNotNull { Regex("""^/go/([a-zA-Z0-9_-]+)$""").find(it.attr("href"))?.groupValues?.get(1) }
+                .mapNotNull { Regex("""^/go/([a-zA-Z0-9_-]+)$""").matchEntire(it.attr("href"))?.groupValues?.get(1) }
                 .distinct()
         }
     }

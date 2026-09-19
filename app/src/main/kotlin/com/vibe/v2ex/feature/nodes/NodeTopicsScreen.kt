@@ -32,6 +32,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -78,6 +80,14 @@ fun NodeTopicsScreen(
     viewModel: NodeTopicsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    uiState.followError?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissFollowError,
+            title = { Text("关注操作失败") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = viewModel::dismissFollowError) { Text("知道了") } },
+        )
+    }
     var sortMenuExpanded by remember { mutableStateOf(false) }
 
     Column(
@@ -314,7 +324,7 @@ private fun NodeHeaderCard(
                 }
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    text = if (uiState.isFollowed) "已关注" else "关注",
+                    text = if (uiState.isUpdatingFollow) "同步中…" else if (uiState.isFollowed) "已关注" else "关注",
                     style = MaterialTheme.typography.labelLarge,
                     color = if (uiState.isFollowed) {
                         MaterialTheme.colorScheme.primary
@@ -327,7 +337,7 @@ private fun NodeHeaderCard(
                             if (uiState.isFollowed) V2Colors.accentSoft(dark)
                             else MaterialTheme.colorScheme.primary,
                         )
-                        .clickable(role = Role.Button, onClick = onToggleFollow)
+                        .clickable(enabled = !uiState.isUpdatingFollow, role = Role.Button, onClick = onToggleFollow)
                         .semantics {
                             role = Role.Button
                             contentDescription = if (uiState.isFollowed) "取消关注 $title" else "关注 $title"

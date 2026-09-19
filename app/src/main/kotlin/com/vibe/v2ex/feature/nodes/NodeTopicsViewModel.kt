@@ -52,6 +52,8 @@ data class NodeTopicsUiState(
     /** Advances for every successful page, even when that page only overlaps existing IDs. */
     val paginationToken: Long = 0,
     val isFollowed: Boolean = false,
+    val isUpdatingFollow: Boolean = false,
+    val followError: String? = null,
     /** 非空 = 当前列表来自本地快照（断网），值是快照时间。 */
     val cachedAt: Long? = null,
     val readIds: Set<Long> = emptySet(),
@@ -128,6 +130,11 @@ class NodeTopicsViewModel @Inject constructor(
         }
         refresh()
         loadNodeInfo()
+        viewModelScope.launch {
+            followedNodesStore.updatingNames.collect { names ->
+                _uiState.update { it.copy(isUpdatingFollow = nodeName in names) }
+            }
+        }
         viewModelScope.launch {
             followedNodesStore.names.collect { names ->
                 _uiState.update { it.copy(isFollowed = nodeName in names) }
@@ -256,8 +263,17 @@ class NodeTopicsViewModel @Inject constructor(
     }
 
     fun toggleFollow() {
-        viewModelScope.launch { followedNodesStore.toggle(nodeName) }
+        if (nodeName in followedNodesStore.updatingNames.value) return
+        val following = !_uiState.value.isFollowed
+        viewModelScope.launch {
+            _uiState.update { it.copy(followError = null) }
+            followedNodesStore.setFollowing(nodeName, following).onFailure { error ->
+                _uiState.update { it.copy(followError = error.message ?: "更新关注失败，请重试") }
+            }
+        }
     }
+
+    fun dismissFollowError() { _uiState.update { it.copy(followError = null) } }
 
     private fun applyModeration(state: NodeTopicsUiState): NodeTopicsUiState {
         val rules = moderationRules
