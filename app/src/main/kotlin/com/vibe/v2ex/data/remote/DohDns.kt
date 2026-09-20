@@ -159,7 +159,7 @@ class DohDns @Inject constructor(
     private fun buildDelegate(value: EncryptedDnsSettings): Dns? =
         value.dohEndpoints().takeIf { it.isNotEmpty() }?.let { endpoints ->
             FallbackDns(
-                upstreams = endpoints.map { it.toDns(bootstrapClient) },
+                upstreams = endpoints.map { it.toDns(bootstrapClient, preferIpv6 = value.preferIpv6) },
                 enabled = { current.enabled },
             )
         }

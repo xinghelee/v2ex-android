@@ -30,6 +30,7 @@ data class EncryptedDnsUiState(
     val resolver: DohResolver = DohResolver.Auto,
     val customUrl: String = "",
     val customBootstrap: String = "",
+    val preferIpv6: Boolean = false,
     /** 按 `DohResolver.key` 存的测试结果；没测过的线路不在里面。 */
     val probes: Map<String, ProbeState> = emptyMap(),
 ) {
@@ -49,6 +50,7 @@ class EncryptedDnsViewModel @Inject constructor(
             resolver = DohResolver.fromKey(prefs.resolverKey),
             customUrl = prefs.customUrl,
             customBootstrap = prefs.customBootstrap,
+            preferIpv6 = prefs.preferIpv6,
             probes = probes,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EncryptedDnsUiState())
@@ -57,6 +59,8 @@ class EncryptedDnsViewModel @Inject constructor(
     fun setEnabled(enabled: Boolean) = viewModelScope.launch { settings.setEncryptedDnsEnabled(enabled) }
 
     fun select(resolver: DohResolver) = viewModelScope.launch { settings.setEncryptedDnsResolver(resolver.key) }
+
+    fun setPreferIpv6(prefer: Boolean) = viewModelScope.launch { settings.setEncryptedDnsPreferIpv6(prefer) }
 
     /** 校验通过才落盘并选中自定义线路；返回的错误文案由对话框内联显示。 */
     fun saveCustom(url: String, bootstrap: String): String? {
@@ -77,7 +81,7 @@ class EncryptedDnsViewModel @Inject constructor(
                 return@launch
             }
             probes.update { it + (resolver.key to ProbeState.Running) }
-            val result = probe.probe(endpoints)
+            val result = probe.probe(endpoints, preferIpv6 = prefs.preferIpv6)
             probes.update { it + (resolver.key to ProbeState.Done(result)) }
         }
     }

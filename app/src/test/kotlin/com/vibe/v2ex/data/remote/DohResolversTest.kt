@@ -9,6 +9,20 @@ import org.junit.Test
 class DohResolversTest {
 
     @Test
+    fun `addresses are ordered ipv4 first by default and ipv6 first on request`() {
+        val v6a = java.net.InetAddress.getByName("2606:4700:10::ac42:8906")
+        val v4a = java.net.InetAddress.getByName("172.66.137.6")
+        val v6b = java.net.InetAddress.getByName("2606:4700:10::ac42:85cf")
+        val v4b = java.net.InetAddress.getByName("172.66.133.207")
+        val upstream = listOf(v6a, v4a, v6b, v4b)
+
+        assertEquals(listOf(v4a, v4b, v6a, v6b), upstream.orderedForConnect(preferIpv6 = false))
+        assertEquals(listOf(v6a, v6b, v4a, v4b), upstream.orderedForConnect(preferIpv6 = true))
+        assertEquals(emptyList<java.net.InetAddress>(), emptyList<java.net.InetAddress>().orderedForConnect(false))
+    }
+
+
+    @Test
     fun `unknown or missing resolver key falls back to auto`() {
         assertEquals(DohResolver.Auto, DohResolver.fromKey(null))
         assertEquals(DohResolver.Auto, DohResolver.fromKey("nope"))

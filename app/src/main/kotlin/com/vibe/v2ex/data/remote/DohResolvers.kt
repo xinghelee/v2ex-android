@@ -1,11 +1,13 @@
 package com.vibe.v2ex.data.remote
 
 import com.vibe.v2ex.data.datastore.EncryptedDnsSettings
+import okhttp3.Dns
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.dnsoverhttps.DnsOverHttps
+import java.net.Inet6Address
 import java.net.InetAddress
 
 /**
@@ -103,11 +105,22 @@ fun DohResolver.endpoints(customUrl: String, customBootstrap: String): List<DohE
         ?.let { listOf(it.endpoint) }.orEmpty()
 }
 
-internal fun DohEndpoint.toDns(client: OkHttpClient): DnsOverHttps = DnsOverHttps.Builder()
-    .client(client)
-    .url(url)
-    .apply { if (bootstrap.isNotEmpty()) bootstrapDnsHosts(bootstrap) }
-    .build()
+/**
+ * 端点对应的解析器。DnsOverHttps 并发查 A 与 AAAA，谁先回来谁排前面，顺序是随机的；
+ * 这里按 [preferIpv6] 重排，保证连接尝试的顺序稳定。两种地址都保留，前者不通仍能换后者。
+ */
+internal fun DohEndpoint.toDns(client: OkHttpClient, preferIpv6: Boolean = false): Dns {
+    val doh = DnsOverHttps.Builder()
+        .client(client)
+        .url(url)
+        .apply { if (bootstrap.isNotEmpty()) bootstrapDnsHosts(bootstrap) }
+        .build()
+    return Dns { hostname -> doh.lookup(hostname).orderedForConnect(preferIpv6) }
+}
+
+/** 稳定排序：默认 IPv4 在前；[preferIpv6] 时 IPv6 在前。同族地址保持上游给出的顺序。 */
+internal fun List<InetAddress>.orderedForConnect(preferIpv6: Boolean): List<InetAddress> =
+    if (preferIpv6) sortedBy { it !is Inet6Address } else sortedBy { it is Inet6Address }
 
 internal fun splitBootstrapIps(raw: String): List<String> =
     raw.split(',', ';', ' ', '\n', '\t').map(String::trim).filter(String::isNotEmpty)

@@ -91,6 +91,14 @@ fun EncryptedDnsScreen(
                 checked = uiState.enabled,
                 onCheckedChange = viewModel::setEnabled,
             )
+            InsetDivider()
+            SwitchRow(
+                label = "优先使用 IPv6 地址",
+                subtitle = "关闭时先连 IPv4；没有 IPv6 路由的网络打开后每个域名首次请求都会先等超时",
+                checked = uiState.preferIpv6,
+                onCheckedChange = viewModel::setPreferIpv6,
+                enabled = uiState.enabled,
+            )
             Text(
                 "开启后，你打开的网址所属域名（含帖子里的第三方图床）会发给所选线路的 DNS 服务商解析。" +
                     "这能绕开本地网络的 DNS 劫持与广告注入，但不解决 IP 层封锁。" +

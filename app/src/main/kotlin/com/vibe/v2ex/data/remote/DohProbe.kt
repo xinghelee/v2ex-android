@@ -27,18 +27,22 @@ class DohProbe @Inject constructor() {
     }
 
     /** 多级链按顺序试，第一个成功的即为结果 —— 与 [FallbackDns] 的实际行为一致。 */
-    suspend fun probe(endpoints: List<DohEndpoint>, hostname: String = "www.v2ex.com"): DohProbeResult =
-        withContext(Dispatchers.IO) {
-            var last: DohProbeResult = DohProbeResult.Failed("没有可用端点")
-            for (endpoint in endpoints) {
-                last = probeOne(endpoint, hostname)
-                if (last is DohProbeResult.Success) break
-            }
-            last
+    suspend fun probe(
+        endpoints: List<DohEndpoint>,
+        preferIpv6: Boolean = false,
+        hostname: String = "www.v2ex.com",
+    ): DohProbeResult = withContext(Dispatchers.IO) {
+        var last: DohProbeResult = DohProbeResult.Failed("没有可用端点")
+        for (endpoint in endpoints) {
+            last = probeOne(endpoint, preferIpv6, hostname)
+            if (last is DohProbeResult.Success) break
         }
+        last
+    }
 
-    private fun probeOne(endpoint: DohEndpoint, hostname: String): DohProbeResult {
-        val dns = endpoint.toDns(client)
+    /** 显示的是排序后的第一个地址，即正式解析时会先连的那个。 */
+    private fun probeOne(endpoint: DohEndpoint, preferIpv6: Boolean, hostname: String): DohProbeResult {
+        val dns = endpoint.toDns(client, preferIpv6)
         val start = System.nanoTime()
         return runCatching { dns.lookup(hostname) }.fold(
             onSuccess = { addresses ->

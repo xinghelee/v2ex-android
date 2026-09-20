@@ -31,6 +31,11 @@ data class EncryptedDnsSettings(
     val resolverKey: String = "auto",
     val customUrl: String = "",
     val customBootstrap: String = "",
+    /**
+     * DoH 答案里 IPv6 是否排在 IPv4 前面。默认关：没有 IPv6 路由的网络（相当多的家庭宽带和
+     * 模拟器）会先对着 v6 地址等满超时才换 v4，每个域名头一次请求都要卡十几秒。
+     */
+    val preferIpv6: Boolean = false,
 )
 
 @Singleton
@@ -57,6 +62,7 @@ class SettingsDataStore @Inject constructor(
         val ENCRYPTED_DNS_RESOLVER = stringPreferencesKey("encrypted_dns_resolver")
         val ENCRYPTED_DNS_CUSTOM_URL = stringPreferencesKey("encrypted_dns_custom_url")
         val ENCRYPTED_DNS_CUSTOM_BOOTSTRAP = stringPreferencesKey("encrypted_dns_custom_bootstrap")
+        val ENCRYPTED_DNS_PREFER_IPV6 = booleanPreferencesKey("encrypted_dns_prefer_ipv6")
     }
 
     val theme: Flow<AppTheme> = context.settingsDataStore.data.map { prefs ->
@@ -109,6 +115,7 @@ class SettingsDataStore @Inject constructor(
             resolverKey = prefs[Keys.ENCRYPTED_DNS_RESOLVER] ?: "auto",
             customUrl = prefs[Keys.ENCRYPTED_DNS_CUSTOM_URL].orEmpty(),
             customBootstrap = prefs[Keys.ENCRYPTED_DNS_CUSTOM_BOOTSTRAP].orEmpty(),
+            preferIpv6 = prefs[Keys.ENCRYPTED_DNS_PREFER_IPV6] ?: false,
         )
     }
 
@@ -143,6 +150,8 @@ class SettingsDataStore @Inject constructor(
         context.settingsDataStore.edit { it[Keys.ENCRYPTED_DNS_ENABLED] = enabled }
     suspend fun setEncryptedDnsResolver(key: String) =
         context.settingsDataStore.edit { it[Keys.ENCRYPTED_DNS_RESOLVER] = key }
+    suspend fun setEncryptedDnsPreferIpv6(prefer: Boolean) =
+        context.settingsDataStore.edit { it[Keys.ENCRYPTED_DNS_PREFER_IPV6] = prefer }
 
     /** 自定义端点保存即选中：填完地址还要再点一次才生效，是最常见的「设了没反应」来源。 */
     suspend fun setEncryptedDnsCustom(url: String, bootstrap: String, resolverKey: String) =
