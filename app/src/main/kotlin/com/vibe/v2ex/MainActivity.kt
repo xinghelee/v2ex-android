@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import com.vibe.v2ex.data.datastore.SettingsDataStore
+import com.vibe.v2ex.data.push.NotificationPushNotifier
 import com.vibe.v2ex.designsystem.V2exTheme
 import com.vibe.v2ex.diagnostics.CrashLog
 import com.vibe.v2ex.feature.agreement.AgreementScreen
@@ -27,6 +28,8 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
     private val appViewModel: AppViewModel by viewModels()
     private val incomingDeepLink = MutableStateFlow<Uri?>(null)
+    /** 系统通知点开时要切到的 Tab（见 NotificationPushNotifier）。 */
+    private val incomingTab = MutableStateFlow<String?>(null)
     private val crashPromptPending = mutableStateOf(false)
 
     @Inject lateinit var settingsDataStore: SettingsDataStore
@@ -38,6 +41,7 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         incomingDeepLink.value = intent?.data
+        incomingTab.value = intent?.getStringExtra(NotificationPushNotifier.EXTRA_OPEN_TAB)
         crashPromptPending.value = CrashLog.hasUnseen(this)
         lifecycleScope.launch {
             settingsDataStore.appIcon.collect { chosenAppIcon = AppIcon.fromName(it) }
@@ -46,6 +50,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val uiState by appViewModel.uiState.collectAsState()
             val deepLink by incomingDeepLink.collectAsState()
+            val openTab by incomingTab.collectAsState()
             V2exTheme(
                 darkModePreference = uiState.darkMode,
                 appTheme = uiState.theme,
@@ -58,6 +63,8 @@ class MainActivity : ComponentActivity() {
                 V2exApp(
                     deepLinkUri = deepLink,
                     onDeepLinkHandled = { incomingDeepLink.value = null },
+                    openTab = openTab,
+                    onOpenTabHandled = { incomingTab.value = null },
                     liquidGlassEnabled = uiState.liquidGlassEnabled,
                     crashReportPending = crashPromptPending.value,
                     onCrashPromptHandled = {
@@ -83,5 +90,6 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         incomingDeepLink.value = intent.data
+        incomingTab.value = intent.getStringExtra(NotificationPushNotifier.EXTRA_OPEN_TAB)
     }
 }

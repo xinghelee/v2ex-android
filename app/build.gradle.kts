@@ -103,6 +103,10 @@ dependencies {
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.navigation.compose)
     ksp(libs.hilt.compiler)
+    // 新提醒推送：WorkManager 定时轮询 + Hilt 注入的 Worker。
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.compiler)
 
     implementation(libs.retrofit.core)
     implementation(libs.retrofit.converter.kotlinx.serialization)

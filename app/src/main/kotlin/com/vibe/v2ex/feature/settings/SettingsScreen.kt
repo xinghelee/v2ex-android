@@ -1,6 +1,12 @@
 package com.vibe.v2ex.feature.settings
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
@@ -166,6 +172,55 @@ fun SettingsScreen(
                 checked = uiState.autoSyncFollowedNodes,
                 enabled = uiState.isWebSessionActive,
                 onCheckedChange = viewModel::setAutoSyncFollowedNodes,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        SectionHeader("通知提醒")
+        V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+            var permissionHint by remember { mutableStateOf<String?>(null) }
+            // Android 13+ 发通知要先拿运行时权限；拒绝就不打开开关，免得用户以为已经在推。
+            val notificationPermission = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission(),
+            ) { granted ->
+                viewModel.setNotificationPushEnabled(granted)
+                permissionHint = if (granted) null else "系统未允许本应用发送通知，请到系统设置里打开后再试"
+            }
+            SwitchRow(
+                label = "新提醒推送",
+                subtitle = when {
+                    !uiState.isTokenSet -> "需要先在「账号与登录」配置 Personal Access Token"
+                    uiState.notificationPushEnabled ->
+                        "每 ${uiState.notificationPushIntervalMinutes} 分钟检查一次，有新提醒时发系统通知"
+                    else -> "定时检查 V2EX 提醒，有回复、提到或感谢时发系统通知"
+                },
+                checked = uiState.notificationPushEnabled,
+                enabled = uiState.isTokenSet,
+                onCheckedChange = { on ->
+                    val needsPermission = on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                        PackageManager.PERMISSION_GRANTED
+                    if (needsPermission) {
+                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        permissionHint = null
+                        viewModel.setNotificationPushEnabled(on)
+                    }
+                },
+            )
+            InsetDivider()
+            ValueRow(
+                label = "检查间隔",
+                value = "${uiState.notificationPushIntervalMinutes} 分钟",
+                onClick = viewModel::cycleNotificationPushInterval,
+            )
+            Text(
+                text = (permissionHint?.let { "$it\n" } ?: "") +
+                    "由系统定时任务轮询，最短 15 分钟，不是实时。部分手机系统会限制后台任务，" +
+                    "收不到提醒时请在系统设置里允许本应用自启动并关闭电池优化。",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (permissionHint != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
             )
         }
 

@@ -4,10 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibe.v2ex.data.datastore.NotificationCredentialKey
 import com.vibe.v2ex.data.datastore.SecureStore
+import com.vibe.v2ex.data.datastore.SettingsDataStore
 import com.vibe.v2ex.data.datastore.UnreadNotificationsStore
 import com.vibe.v2ex.data.model.Notification
 import com.vibe.v2ex.data.model.NotificationKind
 import com.vibe.v2ex.data.moderation.ModerationStore
+import com.vibe.v2ex.data.push.NotificationPushNotifier
 import com.vibe.v2ex.data.remote.V2Envelope
 import com.vibe.v2ex.data.remote.V2exApiV1
 import com.vibe.v2ex.data.remote.V2exApiV2
@@ -102,6 +104,8 @@ class NotificationsViewModel @Inject constructor(
     private val webSessionService: WebSessionService,
     private val moderationStore: ModerationStore,
     private val unreadNotificationsStore: UnreadNotificationsStore,
+    private val settingsDataStore: SettingsDataStore,
+    private val pushNotifier: NotificationPushNotifier,
 ) : ViewModel() {
     private val topicLinkRegex = Regex("""/t/(\d+)""")
     private val moderationRulesFlow: Flow<NotificationModerationRules> = combine(
@@ -242,6 +246,9 @@ class NotificationsViewModel @Inject constructor(
             account = member.username
             items = fetched
             rebuildRows()
+            // 用户已经在这里看到最新一页：推送的基线跟上，挂着的系统通知也收掉。
+            fetched.maxOfOrNull { it.id }?.let { settingsDataStore.raiseNotificationPushLastSeenId(it) }
+            pushNotifier.cancel()
 
             if (!credentials.webSessionActive || credentials.cookieHeader.isEmpty()) {
                 _uiState.update { it.copy(officialUnreadCount = null) }

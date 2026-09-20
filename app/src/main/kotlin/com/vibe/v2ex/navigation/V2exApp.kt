@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
+import com.vibe.v2ex.data.push.NotificationPushNotifier
 import com.vibe.v2ex.designsystem.LocalContentUriHandler
 import com.vibe.v2ex.designsystem.LocalMemberTags
 import androidx.compose.ui.draw.clip
@@ -160,6 +161,9 @@ class MemberTagLookupViewModel @javax.inject.Inject constructor(
 fun V2exApp(
     deepLinkUri: Uri? = null,
     onDeepLinkHandled: () -> Unit = {},
+    /** 系统通知点开时要切到的 Tab 标识（NotificationPushNotifier.TAB_*）。 */
+    openTab: String? = null,
+    onOpenTabHandled: () -> Unit = {},
     liquidGlassEnabled: Boolean = true,
     badgeViewModel: TabBadgeViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
     memberTagViewModel: MemberTagLookupViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
@@ -194,6 +198,13 @@ fun V2exApp(
             navController.navigate(target) { launchSingleTop = true }
         }
         if (deepLinkUri != null) onDeepLinkHandled()
+    }
+
+    LaunchedEffect(openTab) {
+        if (openTab == NotificationPushNotifier.TAB_NOTIFICATIONS) {
+            navController.navigateToTab(TABS.first { it.route == Route.Notifications })
+        }
+        if (openTab != null) onOpenTabHandled()
     }
 
     val browserUriHandler = LocalUriHandler.current

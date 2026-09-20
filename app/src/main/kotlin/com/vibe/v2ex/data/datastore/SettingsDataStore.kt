@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -38,6 +39,23 @@ data class EncryptedDnsSettings(
     val preferIpv6: Boolean = false,
 )
 
+/**
+ * 新提醒推送。默认关：这是个会申请通知权限、常驻后台定时任务的功能，只能由用户主动打开。
+ * [lastSeenId] 是已经看过 / 已经推过的最大通知 id，Worker 只推比它新的。
+ */
+data class NotificationPushSettings(
+    val enabled: Boolean = false,
+    val intervalMinutes: Int = DEFAULT_INTERVAL_MINUTES,
+    val lastSeenId: Long = 0L,
+) {
+    companion object {
+        const val DEFAULT_INTERVAL_MINUTES = 30
+
+        /** WorkManager 周期任务最短 15 分钟，再短系统也不会执行。 */
+        val INTERVAL_OPTIONS = listOf(15, 30, 60)
+    }
+}
+
 @Singleton
 class SettingsDataStore @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -63,6 +81,9 @@ class SettingsDataStore @Inject constructor(
         val ENCRYPTED_DNS_CUSTOM_URL = stringPreferencesKey("encrypted_dns_custom_url")
         val ENCRYPTED_DNS_CUSTOM_BOOTSTRAP = stringPreferencesKey("encrypted_dns_custom_bootstrap")
         val ENCRYPTED_DNS_PREFER_IPV6 = booleanPreferencesKey("encrypted_dns_prefer_ipv6")
+        val NOTIFICATION_PUSH_ENABLED = booleanPreferencesKey("notification_push_enabled")
+        val NOTIFICATION_PUSH_INTERVAL = intPreferencesKey("notification_push_interval_minutes")
+        val NOTIFICATION_PUSH_LAST_SEEN_ID = longPreferencesKey("notification_push_last_seen_id")
     }
 
     val theme: Flow<AppTheme> = context.settingsDataStore.data.map { prefs ->
@@ -119,6 +140,16 @@ class SettingsDataStore @Inject constructor(
         )
     }
 
+    val notificationPush: Flow<NotificationPushSettings> = context.settingsDataStore.data.map { prefs ->
+        NotificationPushSettings(
+            enabled = prefs[Keys.NOTIFICATION_PUSH_ENABLED] ?: false,
+            intervalMinutes = prefs[Keys.NOTIFICATION_PUSH_INTERVAL]
+                ?.takeIf { it in NotificationPushSettings.INTERVAL_OPTIONS }
+                ?: NotificationPushSettings.DEFAULT_INTERVAL_MINUTES,
+            lastSeenId = prefs[Keys.NOTIFICATION_PUSH_LAST_SEEN_ID] ?: 0L,
+        )
+    }
+
     /** 用户选的桌面图标（AppIcon 枚举名）。真正切 activity-alias 的动作等 App 退到后台再做。 */
     val appIcon: Flow<String?> =
         context.settingsDataStore.data.map { it[Keys.APP_ICON] }
@@ -152,6 +183,17 @@ class SettingsDataStore @Inject constructor(
         context.settingsDataStore.edit { it[Keys.ENCRYPTED_DNS_RESOLVER] = key }
     suspend fun setEncryptedDnsPreferIpv6(prefer: Boolean) =
         context.settingsDataStore.edit { it[Keys.ENCRYPTED_DNS_PREFER_IPV6] = prefer }
+
+    suspend fun setNotificationPushEnabled(enabled: Boolean) =
+        context.settingsDataStore.edit { it[Keys.NOTIFICATION_PUSH_ENABLED] = enabled }
+    suspend fun setNotificationPushInterval(minutes: Int) =
+        context.settingsDataStore.edit { it[Keys.NOTIFICATION_PUSH_INTERVAL] = minutes }
+
+    /** 只增不减：通知页和 Worker 都会调用，谁看到的更新就以谁为准。 */
+    suspend fun raiseNotificationPushLastSeenId(id: Long) =
+        context.settingsDataStore.edit {
+            if ((it[Keys.NOTIFICATION_PUSH_LAST_SEEN_ID] ?: 0L) < id) it[Keys.NOTIFICATION_PUSH_LAST_SEEN_ID] = id
+        }
 
     /** 自定义端点保存即选中：填完地址还要再点一次才生效，是最常见的「设了没反应」来源。 */
     suspend fun setEncryptedDnsCustom(url: String, bootstrap: String, resolverKey: String) =

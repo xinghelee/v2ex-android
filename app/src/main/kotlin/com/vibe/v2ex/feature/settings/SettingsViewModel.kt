@@ -10,6 +10,7 @@ import com.vibe.v2ex.data.datastore.EncryptedDnsSettings
 import com.vibe.v2ex.data.datastore.FollowedNodesStore
 import com.vibe.v2ex.data.datastore.LineSpacingPreference
 import com.vibe.v2ex.data.datastore.MonoFontPreference
+import com.vibe.v2ex.data.datastore.NotificationPushSettings
 import com.vibe.v2ex.data.datastore.SecureStore
 import com.vibe.v2ex.data.datastore.SettingsDataStore
 import com.vibe.v2ex.data.remote.DohResolver
@@ -46,6 +47,8 @@ data class SettingsUiState(
     val encryptedDnsEnabled: Boolean = false,
     /** 「解析线路」行的右侧值，如「自动」「Cloudflare」「自定义 DoH」。 */
     val encryptedDnsResolverLabel: String = DohResolver.Auto.label,
+    val notificationPushEnabled: Boolean = false,
+    val notificationPushIntervalMinutes: Int = NotificationPushSettings.DEFAULT_INTERVAL_MINUTES,
     val appIcon: AppIcon = AppIcon.BUBBLES,
     /** 离线缓存占用：正文快照（JSON 字节近似值）+ 图片磁盘缓存，供「清空缓存」行展示。 */
     val cacheByteSize: Long = 0,
@@ -130,6 +133,7 @@ class SettingsViewModel @Inject constructor(
         val communityPulse: Boolean,
         val liquidGlass: Boolean,
         val encryptedDns: EncryptedDnsSettings,
+        val notificationPush: NotificationPushSettings,
         val appIcon: AppIcon,
     )
 
@@ -137,9 +141,10 @@ class SettingsViewModel @Inject constructor(
         settingsDataStore.communityPulseEnabled,
         settingsDataStore.liquidGlassEnabled,
         settingsDataStore.encryptedDns,
+        settingsDataStore.notificationPush,
         settingsDataStore.appIcon,
-    ) { communityPulse, liquidGlass, encryptedDns, appIcon ->
-        Toggles(communityPulse, liquidGlass, encryptedDns, AppIcon.fromName(appIcon))
+    ) { communityPulse, liquidGlass, encryptedDns, notificationPush, appIcon ->
+        Toggles(communityPulse, liquidGlass, encryptedDns, notificationPush, AppIcon.fromName(appIcon))
     }
 
     private val refreshSession = MutableStateFlow(0)
@@ -166,6 +171,8 @@ class SettingsViewModel @Inject constructor(
             liquidGlassEnabled = toggles.liquidGlass,
             encryptedDnsEnabled = toggles.encryptedDns.enabled,
             encryptedDnsResolverLabel = DohResolver.fromKey(toggles.encryptedDns.resolverKey).label,
+            notificationPushEnabled = toggles.notificationPush.enabled,
+            notificationPushIntervalMinutes = toggles.notificationPush.intervalMinutes,
             appIcon = toggles.appIcon,
             cacheByteSize = offline.topicBytes + imageCacheBytes(),
             offlineTopicCount = offline.topicCount,
@@ -205,6 +212,18 @@ class SettingsViewModel @Inject constructor(
     /** 只写偏好；DohDns 自己订阅这个 Flow，切换后立刻清连接池，不需要重启 App。 */
     fun setEncryptedDnsEnabled(enabled: Boolean) =
         viewModelScope.launch { settingsDataStore.setEncryptedDnsEnabled(enabled) }
+
+    /** 只写偏好；NotificationPushScheduler 订阅后负责排期 / 取消 WorkManager 任务。 */
+    fun setNotificationPushEnabled(enabled: Boolean) =
+        viewModelScope.launch { settingsDataStore.setNotificationPushEnabled(enabled) }
+
+    /** 15 → 30 → 60 循环，和行距那一行同一种交互。 */
+    fun cycleNotificationPushInterval() = viewModelScope.launch {
+        val options = NotificationPushSettings.INTERVAL_OPTIONS
+        val current = uiState.value.notificationPushIntervalMinutes
+        val next = options[(options.indexOf(current).coerceAtLeast(0) + 1) % options.size]
+        settingsDataStore.setNotificationPushInterval(next)
+    }
 
     /** 只记录选择；真正切 alias 在 MainActivity.onStop（见 [AppIcon]）。 */
     fun setAppIcon(icon: AppIcon) =

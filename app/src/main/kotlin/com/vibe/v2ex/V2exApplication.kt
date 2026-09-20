@@ -3,6 +3,8 @@ package com.vibe.v2ex
 import android.app.ActivityManager
 import android.app.Application
 import androidx.core.content.getSystemService
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -13,6 +15,7 @@ import coil3.request.allowRgb565
 import coil3.request.crossfade
 import coil3.request.maxBitmapSize
 import coil3.size.Size
+import com.vibe.v2ex.data.push.NotificationPushScheduler
 import com.vibe.v2ex.diagnostics.CrashLog
 import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
@@ -22,7 +25,7 @@ import javax.inject.Inject
 import javax.inject.Named
 
 @HiltAndroidApp
-class V2exApplication : Application(), SingletonImageLoader.Factory {
+class V2exApplication : Application(), SingletonImageLoader.Factory, Configuration.Provider {
 
     /**
      * 用 dagger.Lazy 而不是直接注入 OkHttpClient：后者会让 Hilt 在 onCreate 就把
@@ -32,10 +35,21 @@ class V2exApplication : Application(), SingletonImageLoader.Factory {
     @Named("image")
     lateinit var imageClient: Lazy<OkHttpClient>
 
+    @Inject
+    lateinit var workerFactory: HiltWorkerFactory
+
+    @Inject
+    lateinit var notificationPushScheduler: NotificationPushScheduler
+
+    /** WorkManager 的 Worker 由 Hilt 构造（清单里已关掉默认初始化器）。 */
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
+
     override fun onCreate() {
         super.onCreate()
         // 未捕获异常先落盘再交给系统处理，用户下次启动能从「设置 → 关于 → 崩溃日志」拿到堆栈。
         CrashLog.install(this)
+        notificationPushScheduler.start()
     }
 
     /**
