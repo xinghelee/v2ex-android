@@ -11,6 +11,7 @@ import com.vibe.v2ex.data.nodes.NodeCatalog
 import com.vibe.v2ex.data.repository.FeedCacheRepository
 import com.vibe.v2ex.data.repository.HomeRepository
 import com.vibe.v2ex.data.repository.NodesRepository
+import com.vibe.v2ex.data.remote.NetworkErrorMessages
 import com.vibe.v2ex.data.repository.OfflineRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.Locale
@@ -83,6 +84,7 @@ class HomeViewModel @Inject constructor(
     private val nodesRepository: NodesRepository,
     private val followedNodesStore: FollowedNodesStore,
     private val moderationStore: ModerationStore,
+    private val networkErrors: NetworkErrorMessages,
     readStateStore: ReadStateStore,
     settingsDataStore: SettingsDataStore,
     offlineRepository: OfflineRepository,
@@ -242,7 +244,7 @@ class HomeViewModel @Inject constructor(
                 }
                 runCatching { feedCacheRepository.save(diskKey, snapshot.topics) }
             }.onFailure {
-                val message = result.exceptionOrNull()?.message ?: "加载失败"
+                val message = networkErrors.describe(result.exceptionOrNull(), "加载失败")
                 _uiState.update {
                     it.copy(
                         loadingFeeds = it.loadingFeeds - feed.key,
@@ -304,8 +306,7 @@ class HomeViewModel @Inject constructor(
                     it.copy(
                         loadingMoreFeeds = it.loadingMoreFeeds - feed.key,
                         loadMoreErrorsByFeed = it.loadMoreErrorsByFeed +
-                            (feed.key to (error.message?.takeIf(String::isNotBlank)
-                                ?: "加载更多失败，请重试")),
+                            (feed.key to networkErrors.describe(error, "加载更多失败，请重试")),
                     )
                 }
             }

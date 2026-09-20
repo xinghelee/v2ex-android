@@ -12,6 +12,7 @@ import com.vibe.v2ex.data.model.Topic
 import com.vibe.v2ex.data.moderation.ModerationStore
 import com.vibe.v2ex.data.moderation.ReportReason
 import com.vibe.v2ex.data.moderation.ReportTargetType
+import com.vibe.v2ex.data.remote.NetworkErrorMessages
 import com.vibe.v2ex.data.remote.TopicAppend
 import com.vibe.v2ex.data.remote.WebSessionService
 import com.vibe.v2ex.data.repository.DraftRepository
@@ -169,6 +170,7 @@ class TopicViewModel @Inject constructor(
     private val draftRepository: DraftRepository,
     private val topicSummaryRepository: TopicSummaryRepository,
     private val moderationStore: ModerationStore,
+    private val networkErrors: NetworkErrorMessages,
 ) : ViewModel() {
     private val route: Route.Topic = savedStateHandle.toRoute()
     private val topicId: Long = route.topicId
@@ -314,7 +316,7 @@ class TopicViewModel @Inject constructor(
                     if (state.topic != null) {
                         state.copy(isLoading = false)
                     } else {
-                        state.copy(isLoading = false, error = error?.message ?: "加载失败")
+                        state.copy(isLoading = false, error = networkErrors.describe(error, "加载失败"))
                     }
                 }
             }

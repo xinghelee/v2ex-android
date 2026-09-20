@@ -125,6 +125,9 @@ class DohDns @Inject constructor(
     // 在用户离开设置页后停止接收变更。
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** 当前是否真的在走 DoH（开关开且线路配置有效）。给报错文案判断用。 */
+    val isActive: Boolean get() = delegate != null
+
     override fun lookup(hostname: String): List<InetAddress> =
         delegate?.lookup(hostname) ?: Dns.SYSTEM.lookup(hostname)
 

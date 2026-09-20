@@ -11,6 +11,7 @@ import com.vibe.v2ex.data.datastore.SettingsDataStore
 import com.vibe.v2ex.data.model.Topic
 import com.vibe.v2ex.data.moderation.ModerationStore
 import com.vibe.v2ex.data.nodes.NodeCatalog
+import com.vibe.v2ex.data.remote.NetworkErrorMessages
 import com.vibe.v2ex.data.remote.V2exApiV2
 import com.vibe.v2ex.data.remote.WebSessionService
 import com.vibe.v2ex.data.repository.FeedCacheRepository
@@ -92,6 +93,7 @@ class NodeTopicsViewModel @Inject constructor(
     private val followedNodesStore: FollowedNodesStore,
     private val nodesRepository: NodesRepository,
     private val moderationStore: ModerationStore,
+    private val networkErrors: NetworkErrorMessages,
     readStateStore: ReadStateStore,
     settingsDataStore: SettingsDataStore,
 ) : ViewModel() {
@@ -211,7 +213,7 @@ class NodeTopicsViewModel @Inject constructor(
                     it.copy(
                         isLoading = false,
                         reachedEnd = if (hasLiveCursor) it.reachedEnd else true,
-                        error = if (it.raw.isEmpty()) error.message ?: "加载失败" else null,
+                        error = if (it.raw.isEmpty()) networkErrors.describe(error, "加载失败") else null,
                     )
                 }
             }
