@@ -6,11 +6,13 @@ import androidx.lifecycle.viewModelScope
 import coil3.SingletonImageLoader
 import com.vibe.v2ex.data.datastore.AppTheme
 import com.vibe.v2ex.data.datastore.DarkModePreference
+import com.vibe.v2ex.data.datastore.EncryptedDnsSettings
 import com.vibe.v2ex.data.datastore.FollowedNodesStore
 import com.vibe.v2ex.data.datastore.LineSpacingPreference
 import com.vibe.v2ex.data.datastore.MonoFontPreference
 import com.vibe.v2ex.data.datastore.SecureStore
 import com.vibe.v2ex.data.datastore.SettingsDataStore
+import com.vibe.v2ex.data.remote.DohResolver
 import com.vibe.v2ex.data.repository.AutoOfflineCoordinator
 import com.vibe.v2ex.data.repository.FeedCacheRepository
 import com.vibe.v2ex.data.repository.OfflineRepository
@@ -41,6 +43,9 @@ data class SettingsUiState(
     val offlineOnWifiOnly: Boolean = true,
     val communityPulseEnabled: Boolean = true,
     val liquidGlassEnabled: Boolean = true,
+    val encryptedDnsEnabled: Boolean = false,
+    /** 「解析线路」行的右侧值，如「自动」「Cloudflare」「自定义 DoH」。 */
+    val encryptedDnsResolverLabel: String = DohResolver.Auto.label,
     val appIcon: AppIcon = AppIcon.BUBBLES,
     /** 离线缓存占用：正文快照（JSON 字节近似值）+ 图片磁盘缓存，供「清空缓存」行展示。 */
     val cacheByteSize: Long = 0,
@@ -124,15 +129,17 @@ class SettingsViewModel @Inject constructor(
     private data class Toggles(
         val communityPulse: Boolean,
         val liquidGlass: Boolean,
+        val encryptedDns: EncryptedDnsSettings,
         val appIcon: AppIcon,
     )
 
     private val toggles = combine(
         settingsDataStore.communityPulseEnabled,
         settingsDataStore.liquidGlassEnabled,
+        settingsDataStore.encryptedDns,
         settingsDataStore.appIcon,
-    ) { communityPulse, liquidGlass, appIcon ->
-        Toggles(communityPulse, liquidGlass, AppIcon.fromName(appIcon))
+    ) { communityPulse, liquidGlass, encryptedDns, appIcon ->
+        Toggles(communityPulse, liquidGlass, encryptedDns, AppIcon.fromName(appIcon))
     }
 
     private val refreshSession = MutableStateFlow(0)
@@ -157,6 +164,8 @@ class SettingsViewModel @Inject constructor(
             offlineOnWifiOnly = reading.wifiOnly,
             communityPulseEnabled = toggles.communityPulse,
             liquidGlassEnabled = toggles.liquidGlass,
+            encryptedDnsEnabled = toggles.encryptedDns.enabled,
+            encryptedDnsResolverLabel = DohResolver.fromKey(toggles.encryptedDns.resolverKey).label,
             appIcon = toggles.appIcon,
             cacheByteSize = offline.topicBytes + imageCacheBytes(),
             offlineTopicCount = offline.topicCount,
@@ -192,6 +201,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsDataStore.setCommunityPulseEnabled(enabled) }
     fun setLiquidGlassEnabled(enabled: Boolean) =
         viewModelScope.launch { settingsDataStore.setLiquidGlassEnabled(enabled) }
+
+    /** 只写偏好；DohDns 自己订阅这个 Flow，切换后立刻清连接池，不需要重启 App。 */
+    fun setEncryptedDnsEnabled(enabled: Boolean) =
+        viewModelScope.launch { settingsDataStore.setEncryptedDnsEnabled(enabled) }
 
     /** 只记录选择；真正切 alias 在 MainActivity.onStop（见 [AppIcon]）。 */
     fun setAppIcon(icon: AppIcon) =

@@ -12,8 +12,10 @@ import kotlinx.coroutines.withContext
 import okhttp3.CacheControl
 import okhttp3.CookieJar
 import okhttp3.FormBody
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import retrofit2.HttpException
@@ -623,6 +625,75 @@ class WebSessionService @Inject constructor(
     }
 
     /**
+     * 读取浏览器插件 V2EX Polish 备份在记事本里的设置（协议见 [PolishSettingsNoteParser]）。
+     * null = 这个账号还没有备份记事本。记事本里还有插件自己的 Token 等私密设置，
+     * 只在内存里过一遍交给调用方按键取用，不落盘、不进日志。
+     */
+    suspend fun polishSettingsNote(cookieHeader: String): Result<PolishSettingsNote?> =
+        withContext(Dispatchers.IO) {
+            websiteResult("读取记事本失败，请检查网络后重试") {
+                val cookie = validCookie(cookieHeader)
+                val noteId = readPolishNoteId(cookie) ?: return@websiteResult null
+                PolishSettingsNoteParser.parse(noteId, readPolishNoteContent(noteId, cookie))
+                    ?: websiteFailure("记事本内容不是 V2EX Polish 的备份格式，请先在插件里重新备份一次")
+            }
+        }
+
+    /**
+     * 把整篇内容写进记事本；[noteId] 为空时新建（和插件一样 `parent_id=0`）。插件的请求不带
+     * once，这里编辑页表单里若有 once 也一并带上。HTTP 200 不算数：写完重新读回逐字比对，
+     * 新建的还要能在列表里按标题找到，官网没存下来就报失败。返回记事本 id。
+     */
+    suspend fun writePolishSettingsNote(cookieHeader: String, noteId: Long?, content: String): Result<Long> =
+        withContext(Dispatchers.IO) {
+            websiteResult("写入记事本失败，请检查网络后重试") {
+                val cookie = validCookie(cookieHeader)
+                val formPath = if (noteId != null) "/notes/edit/$noteId" else "/notes/new"
+                val formPage = executeWebsiteGet(formPath, cookie, DESKTOP_USER_AGENT)
+                validateWebsitePage(formPage, operation = "打开记事本编辑页", expectedPath = formPath)
+                val once = Jsoup.parse(formPage.html).selectFirst("form input[name=once]")?.attr("value")
+                val body = MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("content", content)
+                    .addFormDataPart("syntax", "0")
+                    .apply {
+                        if (noteId == null) addFormDataPart("parent_id", "0")
+                        once?.takeIf(String::isNotBlank)?.let { addFormDataPart("once", it) }
+                    }
+                    .build()
+                val response = executeWebsitePost(formPath, cookie, DESKTOP_USER_AGENT, body, refererPath = formPath)
+                if (response.finalPath == "/signin" || response.finalPath.startsWith("/2fa") || response.code == 401) {
+                    websiteFailure("网页会话已失效，请重新登录 V2EX")
+                }
+                if (response.code >= 500) websiteFailure("V2EX 服务暂时不可用（HTTP ${response.code}），请稍后重试")
+                if (response.code !in 200..399) websiteFailure("写入记事本失败（HTTP ${response.code}），请稍后重试")
+                Jsoup.parse(response.html).selectFirst("div.problem")?.let { problem ->
+                    websiteFailure(problem.text().ifBlank { "记事本被官网拒绝，请稍后重试" })
+                }
+                currentCoroutineContext().ensureActive()
+                val storedId = noteId ?: readPolishNoteId(cookie)
+                    ?: websiteFailure("官网未确认新建的记事本，请稍后重试")
+                val stored = readPolishNoteContent(storedId, cookie)
+                if (stored.trim() != content.trim()) websiteFailure("官网未确认记事本内容，请稍后重试")
+                storedId
+            }
+        }
+
+    private fun readPolishNoteId(cookie: String): Long? {
+        val list = executeWebsiteGet("/notes", cookie, DESKTOP_USER_AGENT)
+        validateWebsitePage(list, operation = "读取记事本列表", expectedPath = "/notes")
+        return PolishSettingsNoteParser.findNoteId(list.html)
+    }
+
+    private fun readPolishNoteContent(noteId: Long, cookie: String): String {
+        val path = "/notes/edit/$noteId"
+        val page = executeWebsiteGet(path, cookie, DESKTOP_USER_AGENT)
+        validateWebsitePage(page, operation = "读取记事本", expectedPath = path)
+        return PolishSettingsNoteParser.noteContent(page.html)
+            ?: websiteFailure("记事本页面没有编辑框，请确认登录仍有效后重试")
+    }
+
+    /**
      * 一次抓取话题页，同时解析浏览数、附言与 PRO 徽章 —— 三者都只存在于网页，
      * 分开请求会浪费整次网页往返。
      */
@@ -855,6 +926,35 @@ class WebSessionService @Inject constructor(
                 cookieHeader?.let { header("Cookie", it) }
                 refererPath?.let { header("Referer", BASE + it) }
             }
+            .build()
+        return isolatedWebClient.newCall(request).execute().use { response ->
+            WebsiteHttpPage(
+                code = response.code,
+                finalPath = response.request.url.encodedPath,
+                finalUrl = response.request.url.toString(),
+                html = response.body.string(),
+            )
+        }
+    }
+
+    /** 和 [executeWebsiteGet] 同一条隔离链路，只是换成 POST；重定向后的落点同样在返回值里。 */
+    private fun executeWebsitePost(
+        path: String,
+        cookieHeader: String,
+        userAgent: String,
+        body: RequestBody,
+        refererPath: String? = null,
+    ): WebsiteHttpPage {
+        if (!path.startsWith('/') || path.startsWith("//") || path.contains('\r') || path.contains('\n')) {
+            websiteFailure("官网请求地址无效")
+        }
+        val request = Request.Builder()
+            .url(BASE + path)
+            .cacheControl(CacheControl.FORCE_NETWORK)
+            .header("User-Agent", userAgent)
+            .header("Cookie", cookieHeader)
+            .apply { refererPath?.let { header("Referer", BASE + it) } }
+            .post(body)
             .build()
         return isolatedWebClient.newCall(request).execute().use { response ->
             WebsiteHttpPage(

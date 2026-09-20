@@ -8,6 +8,7 @@ import com.vibe.v2ex.data.local.DraftDao
 import com.vibe.v2ex.data.local.FavoriteTopicDao
 import com.vibe.v2ex.data.local.FeedCacheDao
 import com.vibe.v2ex.data.local.HistoryDao
+import com.vibe.v2ex.data.local.MemberTagDao
 import com.vibe.v2ex.data.local.ModerationVisibilityDao
 import com.vibe.v2ex.data.local.OfflineTopicDao
 import com.vibe.v2ex.data.local.ReportDao
@@ -26,7 +27,7 @@ object StorageModule {
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "v2ex.db")
-            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
             .build()
 
     @Provides
@@ -52,4 +53,7 @@ object StorageModule {
 
     @Provides
     fun provideReportDao(db: AppDatabase): ReportDao = db.reportDao()
+
+    @Provides
+    fun provideMemberTagDao(db: AppDatabase): MemberTagDao = db.memberTagDao()
 }

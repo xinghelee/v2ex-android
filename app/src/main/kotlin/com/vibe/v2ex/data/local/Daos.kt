@@ -170,3 +170,27 @@ interface ReportDao {
     @Update
     suspend fun update(entity: ReportEntity)
 }
+
+@Dao
+interface MemberTagDao {
+    @Query("SELECT * FROM member_tags ORDER BY updatedAt DESC")
+    fun observeAll(): Flow<List<MemberTagEntity>>
+
+    @Query("SELECT * FROM member_tags")
+    suspend fun all(): List<MemberTagEntity>
+
+    @Query("SELECT * FROM member_tags WHERE usernameKey = :usernameKey")
+    fun observe(usernameKey: String): Flow<MemberTagEntity?>
+
+    @Query("SELECT * FROM member_tags WHERE usernameKey = :usernameKey")
+    suspend fun get(usernameKey: String): MemberTagEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: MemberTagEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(entities: List<MemberTagEntity>)
+
+    @Query("DELETE FROM member_tags WHERE usernameKey = :usernameKey")
+    suspend fun delete(usernameKey: String)
+}

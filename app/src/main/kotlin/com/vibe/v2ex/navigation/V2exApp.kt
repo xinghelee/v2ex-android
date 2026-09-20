@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import com.vibe.v2ex.designsystem.LocalContentUriHandler
+import com.vibe.v2ex.designsystem.LocalMemberTags
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -78,6 +79,8 @@ import com.vibe.v2ex.designsystem.LocalTabBarClearance
 import com.vibe.v2ex.designsystem.isLiquidGlassSupported
 import com.vibe.v2ex.designsystem.liquidGlass
 import com.vibe.v2ex.feature.account.AccountScreen
+import com.vibe.v2ex.feature.diagnostics.CrashLogScreen
+import com.vibe.v2ex.feature.diagnostics.CrashPromptDialog
 import com.vibe.v2ex.feature.home.HomeScreen
 import com.vibe.v2ex.feature.member.MemberScreen
 import com.vibe.v2ex.feature.moderation.ModerationSettingsScreen
@@ -91,7 +94,9 @@ import com.vibe.v2ex.feature.nodes.NodesScreen
 import com.vibe.v2ex.feature.notifications.NotificationsScreen
 import com.vibe.v2ex.feature.profile.ProfileScreen
 import com.vibe.v2ex.feature.search.SearchScreen
+import com.vibe.v2ex.feature.settings.EncryptedDnsScreen
 import com.vibe.v2ex.feature.settings.SettingsScreen
+import com.vibe.v2ex.feature.tags.MemberTagsScreen
 import com.vibe.v2ex.feature.topic.TopicScreen
 import com.vibe.v2ex.feature.write.WriteScreen
 
@@ -138,12 +143,28 @@ class TabBadgeViewModel @javax.inject.Inject constructor(
         )
 }
 
+/** 全局用户标记查表 — MemberTagStore.lookup 的 StateFlow 化；「显示用户标记」关闭时恒为 Disabled。 */
+@dagger.hilt.android.lifecycle.HiltViewModel
+class MemberTagLookupViewModel @javax.inject.Inject constructor(
+    memberTagStore: com.vibe.v2ex.data.tags.MemberTagStore,
+) : androidx.lifecycle.ViewModel() {
+    val lookup: kotlinx.coroutines.flow.StateFlow<com.vibe.v2ex.data.tags.MemberTagLookup> = memberTagStore.lookup
+        .stateIn(
+            viewModelScope,
+            kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000),
+            com.vibe.v2ex.data.tags.MemberTagLookup.Disabled,
+        )
+}
+
 @Composable
 fun V2exApp(
     deepLinkUri: Uri? = null,
     onDeepLinkHandled: () -> Unit = {},
     liquidGlassEnabled: Boolean = true,
     badgeViewModel: TabBadgeViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
+    memberTagViewModel: MemberTagLookupViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
+    crashReportPending: Boolean = false,
+    onCrashPromptHandled: () -> Unit = {},
 ) {
     val navController = rememberNavController()
     // 冷启动直接以 Deep Link 主题作为起点，避免先显示首页再跳转；后续 onNewIntent
@@ -154,6 +175,7 @@ fun V2exApp(
     val currentDestination = backStackEntry?.destination
     val onTab = TABS.any { tab -> currentDestination?.hierarchy?.any(tab.matches) == true }
     val unreadCount by badgeViewModel.unreadCount.collectAsState()
+    val memberTags by memberTagViewModel.lookup.collectAsState()
 
     // 用户关掉、或设备低于 Android 12（连模糊都没有）时退回实心通栏底栏。
     val glassBar = liquidGlassEnabled && isLiquidGlassSupported
@@ -184,9 +206,20 @@ fun V2exApp(
             }
         }
     }
+    // 上次运行崩溃过就提示一次；用户看过或忽略后不再打扰，日志仍留在设置里。
+    if (crashReportPending) {
+        CrashPromptDialog(
+            onView = {
+                onCrashPromptHandled()
+                navController.navigate(Route.CrashLog)
+            },
+            onDismiss = onCrashPromptHandled,
+        )
+    }
     CompositionLocalProvider(
         LocalTabBarClearance provides clearance,
         LocalContentUriHandler provides contentUriHandler,
+        LocalMemberTags provides memberTags,
     ) {
         androidx.compose.material3.Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
@@ -391,13 +424,28 @@ private fun AppNavHost(
                 onBack = navController::popBackStack,
                 onAccountClick = { navController.navigate(Route.Login) },
                 onModerationClick = { navController.navigate(Route.Moderation) },
+                onEncryptedDnsClick = { navController.navigate(Route.EncryptedDns) },
+                onMemberTagsClick = { navController.navigate(Route.MemberTags) },
+                onCrashLogClick = { navController.navigate(Route.CrashLog) },
             )
+        }
+        composable<Route.EncryptedDns> {
+            EncryptedDnsScreen(onBack = navController::popBackStack)
         }
         composable<Route.Moderation> {
             ModerationSettingsScreen(
                 onBack = navController::popBackStack,
                 onAccountClick = { navController.navigate(Route.Login) },
             )
+        }
+        composable<Route.MemberTags> {
+            MemberTagsScreen(
+                onBack = navController::popBackStack,
+                onMemberClick = { username -> navController.navigate(Route.Member(username)) },
+            )
+        }
+        composable<Route.CrashLog> {
+            CrashLogScreen(onBack = navController::popBackStack)
         }
         composable<Route.Write> {
             WriteScreen(

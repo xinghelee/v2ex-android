@@ -17,8 +17,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FavoriteTopicEntity::class,
         HistoryEntity::class,
         ReportEntity::class,
+        MemberTagEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -30,6 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun favoriteTopicDao(): FavoriteTopicDao
     abstract fun historyDao(): HistoryDao
     abstract fun reportDao(): ReportDao
+    abstract fun memberTagDao(): MemberTagDao
 
     companion object {
         /** 1.0.2 -> 1.1.0：新增列表离线快照表，纯新增，无数据迁移。 */
@@ -39,6 +41,17 @@ abstract class AppDatabase : RoomDatabase() {
                     "CREATE TABLE IF NOT EXISTS `feed_cache` (" +
                         "`feedKey` TEXT NOT NULL, `topicsJson` TEXT NOT NULL, " +
                         "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`feedKey`))",
+                )
+            }
+        }
+
+        /** 1.2.3 -> 1.3.0：新增用户标记表，纯新增，无数据迁移。 */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `member_tags` (" +
+                        "`usernameKey` TEXT NOT NULL, `username` TEXT NOT NULL, `tagsJson` TEXT NOT NULL, " +
+                        "`avatarUrl` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`usernameKey`))",
                 )
             }
         }

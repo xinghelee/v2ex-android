@@ -9,10 +9,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import com.vibe.v2ex.data.datastore.SettingsDataStore
 import com.vibe.v2ex.designsystem.V2exTheme
+import com.vibe.v2ex.diagnostics.CrashLog
 import com.vibe.v2ex.feature.agreement.AgreementScreen
 import com.vibe.v2ex.feature.settings.AppIcon
 import com.vibe.v2ex.navigation.V2exApp
@@ -25,6 +27,7 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
     private val appViewModel: AppViewModel by viewModels()
     private val incomingDeepLink = MutableStateFlow<Uri?>(null)
+    private val crashPromptPending = mutableStateOf(false)
 
     @Inject lateinit var settingsDataStore: SettingsDataStore
 
@@ -35,6 +38,7 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         incomingDeepLink.value = intent?.data
+        crashPromptPending.value = CrashLog.hasUnseen(this)
         lifecycleScope.launch {
             settingsDataStore.appIcon.collect { chosenAppIcon = AppIcon.fromName(it) }
         }
@@ -55,6 +59,11 @@ class MainActivity : ComponentActivity() {
                     deepLinkUri = deepLink,
                     onDeepLinkHandled = { incomingDeepLink.value = null },
                     liquidGlassEnabled = uiState.liquidGlassEnabled,
+                    crashReportPending = crashPromptPending.value,
+                    onCrashPromptHandled = {
+                        CrashLog.markSeen(this@MainActivity)
+                        crashPromptPending.value = false
+                    },
                 )
             }
         }

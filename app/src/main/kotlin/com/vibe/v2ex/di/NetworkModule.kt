@@ -1,6 +1,7 @@
 package com.vibe.v2ex.di
 
 import com.vibe.v2ex.data.datastore.SecureStore
+import com.vibe.v2ex.data.remote.DohDns
 import com.vibe.v2ex.data.remote.PersistentCookieJar
 import com.vibe.v2ex.data.remote.SoV2exApi
 import com.vibe.v2ex.data.remote.V2exApiV1
@@ -10,6 +11,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.Json
+import okhttp3.CookieJar
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -39,8 +41,11 @@ object NetworkModule {
     fun provideOkHttpClient(
         cookieJar: PersistentCookieJar,
         secureStore: SecureStore,
+        dohDns: DohDns,
     ): OkHttpClient = OkHttpClient.Builder()
         .cookieJar(cookieJar)
+        // 开关关闭时 DohDns 逐字转发给 Dns.SYSTEM，所以这一行常态下没有任何行为变化。
+        .dns(dohDns)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .addInterceptor { chain ->
@@ -79,6 +84,21 @@ object NetworkModule {
                 level = HttpLoggingInterceptor.Level.BASIC
             },
         )
+        .build()
+
+    /**
+     * 图片专用 client：共享上面这个 client 的 DNS（含 DoH）、Dispatcher 与 ConnectionPool，
+     * 但必须剥掉两样东西 —— CookieJar（图床没有理由收到 V2EX 会话 cookie）和全部
+     * interceptor（PAT 注入、`/api/` cache-busting + FORCE_NETWORK 对图片只有害处）。
+     *
+     * `newBuilder()` 把 interceptors 拷进新的可变列表，`clear()` 不会动到原 client。
+     */
+    @Provides
+    @Singleton
+    @Named("image")
+    fun provideImageOkHttpClient(client: OkHttpClient): OkHttpClient = client.newBuilder()
+        .cookieJar(CookieJar.NO_COOKIES)
+        .also { it.interceptors().clear() }
         .build()
 
     @Provides

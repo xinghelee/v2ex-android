@@ -29,7 +29,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,13 +51,17 @@ import com.vibe.v2ex.data.moderation.ModerationStore
 import com.vibe.v2ex.data.remote.V2exApiV1
 import com.vibe.v2ex.designsystem.Avatar
 import com.vibe.v2ex.designsystem.CardGroupItem
+import com.vibe.v2ex.designsystem.LocalMemberTags
+import com.vibe.v2ex.designsystem.MemberTagChips
 import com.vibe.v2ex.designsystem.ReplyCount
 import com.vibe.v2ex.designsystem.SectionHeader
 import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.cardGroupPosition
+import com.vibe.v2ex.designsystem.memberTagsFor
 import com.vibe.v2ex.designsystem.relativeTimeText
 import com.vibe.v2ex.designsystem.topicRowTitle
 import com.vibe.v2ex.feature.home.TAB_BAR_CLEARANCE
+import com.vibe.v2ex.feature.tags.MemberTagEditorDialog
 import com.vibe.v2ex.navigation.Route
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -187,6 +193,17 @@ fun MemberScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val memberTagsEnabled = LocalMemberTags.current.enabled
+    val memberTags = memberTagsFor(uiState.username)
+    var showTagEditor by remember { mutableStateOf(false) }
+
+    if (showTagEditor) {
+        MemberTagEditorDialog(
+            username = uiState.username,
+            avatarUrl = uiState.member?.avatarUrl,
+            onDismiss = { showTagEditor = false },
+        )
+    }
 
     LaunchedEffect(uiState.message) {
         uiState.message?.let { message ->
@@ -240,6 +257,8 @@ fun MemberScreen(
                         isBlocked = uiState.isBlocked,
                         isSyncing = uiState.isBlockSyncing,
                         onToggleBlocked = viewModel::toggleBlocked,
+                        tags = memberTags,
+                        onEditTags = if (memberTagsEnabled) ({ showTagEditor = true }) else null,
                     )
                     uiState.isLoading -> Box(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
@@ -313,6 +332,8 @@ private fun MemberCard(
     isBlocked: Boolean,
     isSyncing: Boolean,
     onToggleBlocked: () -> Unit,
+    tags: List<String> = emptyList(),
+    onEditTags: (() -> Unit)? = null,
 ) {
     V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -342,6 +363,17 @@ private fun MemberCard(
                             modifier = Modifier.padding(top = 3.dp),
                         )
                     }
+                    if (tags.isNotEmpty()) {
+                        MemberTagChips(
+                            tags = tags,
+                            maxVisible = 4,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                }
+                onEditTags?.let { edit ->
+                    TextButton(onClick = edit) { Text("标记") }
                 }
                 TextButton(onClick = onToggleBlocked, enabled = !isSyncing) {
                     if (isSyncing) {

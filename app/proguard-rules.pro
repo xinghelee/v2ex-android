@@ -1,4 +1,10 @@
 # Add project specific ProGuard rules here.
+
+# 开源项目不需要混淆；保留类名和行号，用户从「崩溃日志」页分享出来的堆栈才能直接读。
+# 仍然保留 R8 的裁剪与优化。
+-dontobfuscate
+-keepattributes SourceFile,LineNumberTable
+
 -keepattributes *Annotation*
 -keepattributes Signature
 -keepattributes Exceptions

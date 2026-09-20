@@ -8,15 +8,35 @@ import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.allowRgb565
 import coil3.request.crossfade
 import coil3.request.maxBitmapSize
 import coil3.size.Size
+import com.vibe.v2ex.diagnostics.CrashLog
+import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
+import okhttp3.OkHttpClient
 import okio.Path.Companion.toOkioPath
+import javax.inject.Inject
+import javax.inject.Named
 
 @HiltAndroidApp
 class V2exApplication : Application(), SingletonImageLoader.Factory {
+
+    /**
+     * 用 dagger.Lazy 而不是直接注入 OkHttpClient：后者会让 Hilt 在 onCreate 就把
+     * 整张网络图（CookieJar、SecureStore、DohDns）构建出来，白白给冷启动加开销。
+     */
+    @Inject
+    @Named("image")
+    lateinit var imageClient: Lazy<OkHttpClient>
+
+    override fun onCreate() {
+        super.onCreate()
+        // 未捕获异常先落盘再交给系统处理，用户下次启动能从「设置 → 关于 → 崩溃日志」拿到堆栈。
+        CrashLog.install(this)
+    }
 
     /**
      * Coil 的出厂默认允许 4096×4096 的位图 —— 单张就能吃掉 64MB 堆，而 V2EX 帖子里
@@ -38,6 +58,9 @@ class V2exApplication : Application(), SingletonImageLoader.Factory {
                     .maxSizeBytes(IMAGE_DISK_CACHE_BYTES)
                     .build()
             }
+            // 显式接到 App 自己的 OkHttp 上，图片链路才能一起吃到 DoH；
+            // 不指定的话 Coil 会用 ServiceLoader 自动注册一个它自己的 client。
+            .components { add(OkHttpNetworkFetcherFactory(callFactory = { imageClient.get() })) }
             .crossfade(true)
             .build()
     }

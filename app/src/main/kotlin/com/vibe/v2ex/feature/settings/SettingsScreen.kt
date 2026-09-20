@@ -64,8 +64,10 @@ import com.vibe.v2ex.designsystem.SectionHeader
 import com.vibe.v2ex.designsystem.SecureCredentialField
 import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.isLiquidGlassSupported
+import com.vibe.v2ex.diagnostics.CrashLog
 import com.vibe.v2ex.designsystem.V2Colors
 import com.vibe.v2ex.designsystem.paletteFor
+import com.vibe.v2ex.feature.tags.MemberTagSettingsViewModel
 import kotlinx.coroutines.delay
 
 private val LINE_SPACING_LABELS = mapOf(
@@ -84,6 +86,9 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onAccountClick: () -> Unit = {},
     onModerationClick: () -> Unit = {},
+    onEncryptedDnsClick: () -> Unit = {},
+    onMemberTagsClick: () -> Unit = {},
+    onCrashLogClick: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -251,6 +256,8 @@ fun SettingsScreen(
             )
         }
 
+        MemberTagSettingsSection(onManageClick = onMemberTagsClick)
+
         Spacer(modifier = Modifier.height(16.dp))
         SectionHeader("离线与缓存")
         V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
@@ -349,6 +356,22 @@ fun SettingsScreen(
                 checked = uiState.communityPulseEnabled,
                 onCheckedChange = viewModel::setCommunityPulseEnabled,
             )
+            InsetDivider()
+            SwitchRow(
+                label = "加密 DNS 解析",
+                subtitle = "域名解析改走 DoH，绕开本地 DNS 劫持",
+                checked = uiState.encryptedDnsEnabled,
+                onCheckedChange = viewModel::setEncryptedDnsEnabled,
+            )
+            InsetDivider()
+            ValueRow(label = "解析线路", value = uiState.encryptedDnsResolverLabel, onClick = onEncryptedDnsClick)
+            Text(
+                "开启后，你打开的网址所属域名（含帖子里的第三方图床）会发给所选线路的 DNS 服务商解析。" +
+                    "这能绕开本地网络的 DNS 劫持与广告注入，但不解决 IP 层封锁；线路不通时自动回退系统 DNS。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -361,6 +384,12 @@ fun SettingsScreen(
             })
             InsetDivider()
             ValueRow(label = "内容与屏蔽", value = "", onClick = onModerationClick)
+            InsetDivider()
+            ValueRow(
+                label = "崩溃日志",
+                value = if (remember { CrashLog.hasReport(context) }) "有记录" else "无",
+                onClick = onCrashLogClick,
+            )
             InsetDivider()
             ValueRow(label = "联系开发者", value = "hi@xinghelee.com", onClick = {
                 context.startActivity(Intent(Intent.ACTION_VIEW, "mailto:hi@xinghelee.com".toUri()))
@@ -639,7 +668,7 @@ private fun SplitPreview() {
 
 /** 值行：17sp 标题 + 右侧值（+ 可选 chevron），点按触发动作。 */
 @Composable
-private fun ValueRow(
+internal fun ValueRow(
     label: String,
     value: String,
     onClick: (() -> Unit)?,
@@ -721,7 +750,7 @@ private fun OfflinePrefetchRow(
 }
 
 @Composable
-private fun SwitchRow(
+internal fun SwitchRow(
     label: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
@@ -755,10 +784,73 @@ private fun SwitchRow(
 }
 
 @Composable
-private fun InsetDivider() {
+internal fun InsetDivider() {
     HorizontalDivider(
         modifier = Modifier.padding(start = 16.dp),
         thickness = 0.5.dp,
         color = MaterialTheme.colorScheme.outlineVariant,
     )
+}
+
+/**
+ * 用户标记：显示开关、管理入口、与浏览器插件 V2EX Polish 的双向同步。
+ * 同步走用户自己的 V2EX 记事本（插件的备份机制），所以需要网页登录；状态源独立于 SettingsViewModel。
+ */
+@Composable
+private fun MemberTagSettingsSection(
+    onManageClick: () -> Unit,
+    viewModel: MemberTagSettingsViewModel = hiltViewModel(),
+) {
+    val state by viewModel.uiState.collectAsState()
+
+    // 同步结果是一句一次性反馈，几秒后退回常驻说明。
+    LaunchedEffect(state.message) {
+        if (state.message != null) {
+            delay(8_000)
+            viewModel.consumeMessage()
+        }
+    }
+
+    Spacer(modifier = Modifier.height(16.dp))
+    SectionHeader("用户标记")
+    V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+        SwitchRow(
+            label = "显示用户标记",
+            subtitle = "在帖子、回复和用户页显示你给用户加的标记",
+            checked = state.showMemberTags,
+            onCheckedChange = viewModel::setShowMemberTags,
+        )
+        InsetDivider()
+        ValueRow(
+            label = "管理用户标记",
+            value = if (state.taggedCount > 0) "${state.taggedCount} 位用户" else "",
+            onClick = onManageClick,
+        )
+        InsetDivider()
+        ValueRow(
+            label = "从 V2EX Polish 同步",
+            value = if (state.isSyncing) "同步中…" else "",
+            showChevron = false,
+            onClick = if (state.isSyncing) null else viewModel::pullFromPolish,
+        )
+        InsetDivider()
+        ValueRow(
+            label = "上传到 V2EX Polish",
+            value = if (state.isSyncing) "同步中…" else "",
+            showChevron = false,
+            onClick = if (state.isSyncing) null else viewModel::pushToPolish,
+        )
+        Text(
+            text = state.message
+                ?: "同步走你的 V2EX 记事本：浏览器插件 V2EX Polish 会把设置备份到一篇标题为 V2EX_Polish_settings 的记事本，" +
+                "App 读写同一篇，只动其中的用户标签，其余插件设置原样保留。需要先完成网页登录。",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (state.message != null) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.outline
+            },
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
+        )
+    }
 }

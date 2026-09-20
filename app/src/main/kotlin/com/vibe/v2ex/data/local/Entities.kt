@@ -93,3 +93,18 @@ data class ReportEntity(
     val createdAt: Long,
     val deliveredAt: Long?,
 )
+
+/**
+ * 用户标记（对齐浏览器插件 V2EX Polish 的 `member-tag`）。[usernameKey] 是小写用户名，
+ * 查找不区分大小写；[username] 保留用户输入或插件里的原始写法，上传回插件时用它。
+ */
+@Entity(tableName = "member_tags")
+data class MemberTagEntity(
+    @PrimaryKey val usernameKey: String,
+    val username: String,
+    /** JSON 字符串数组。 */
+    val tagsJson: String,
+    /** 插件会顺手存头像，管理页和上传时沿用；本机打的标记也尽量补上。 */
+    val avatarUrl: String?,
+    val updatedAt: Long,
+)

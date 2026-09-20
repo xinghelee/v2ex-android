@@ -33,10 +33,22 @@ sealed interface ContentBlock {
  */
 fun parseContentBlocks(html: String): List<ContentBlock> {
     if (html.isBlank()) return emptyList()
-    val sink = BlockSink()
-    Jsoup.parseBodyFragment(html).body().childNodes().forEach { sink.appendBlockNode(it) }
-    sink.flushPending(PARAGRAPH)
-    return sink.blocks
+    return try {
+        val sink = BlockSink()
+        Jsoup.parseBodyFragment(html).body().childNodes().forEach { sink.appendBlockNode(it) }
+        sink.flushPending(PARAGRAPH)
+        sink.blocks
+    } catch (error: Exception) {
+        plainTextFallback(html)
+    } catch (error: StackOverflowError) {
+        plainTextFallback(html)
+    }
+}
+
+/** 解析器被某段异常 HTML 绊倒时退回纯文本 —— 一条帖子不该拖垮整个详情页。 */
+private fun plainTextFallback(html: String): List<ContentBlock> {
+    val text = runCatching { Jsoup.parseBodyFragment(html).text() }.getOrDefault(html).trim()
+    return if (text.isEmpty()) emptyList() else listOf(ContentBlock.Paragraph(AnnotatedString(text)))
 }
 
 /** `//host/…` → https, `/path` → v2ex.com-rooted; anything else passes through. */

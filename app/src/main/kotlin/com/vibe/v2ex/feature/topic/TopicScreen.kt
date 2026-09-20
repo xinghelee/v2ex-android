@@ -96,13 +96,17 @@ import com.vibe.v2ex.designsystem.Avatar
 import com.vibe.v2ex.designsystem.CardGroupItem
 import com.vibe.v2ex.designsystem.ContentBlock
 import com.vibe.v2ex.designsystem.ContentBlocksView
+import com.vibe.v2ex.designsystem.LocalMemberTags
 import com.vibe.v2ex.designsystem.LocalV2Dark
+import com.vibe.v2ex.designsystem.MemberTagChips
 import com.vibe.v2ex.designsystem.OfflineBadge
 import com.vibe.v2ex.designsystem.OfflineNoticeBar
 import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.V2Colors
 import com.vibe.v2ex.designsystem.cardGroupPosition
+import com.vibe.v2ex.designsystem.memberTagsFor
 import com.vibe.v2ex.designsystem.relativeTimeText
+import com.vibe.v2ex.feature.tags.MemberTagEditorDialog
 import java.util.Locale
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.delay
@@ -130,6 +134,17 @@ fun TopicScreen(
     var showShareText by remember { mutableStateOf(false) }
     var highlightedReplyId by remember { mutableStateOf<Long?>(null) }
     var reportTarget by remember { mutableStateOf<TopicModerationTarget?>(null) }
+    val memberTagsEnabled = LocalMemberTags.current.enabled
+    // 正在打标记的用户：用户名 + 头像（头像可空，只是顺手存给插件那边显示）。
+    var tagEditorTarget by remember { mutableStateOf<Pair<String, String?>?>(null) }
+
+    tagEditorTarget?.let { (username, avatarUrl) ->
+        MemberTagEditorDialog(
+            username = username,
+            avatarUrl = avatarUrl,
+            onDismiss = { tagEditorTarget = null },
+        )
+    }
 
     val jumpToFloor: (Int) -> Unit = { floor ->
         val target = uiState.replies.firstOrNull { it.floor == floor }
@@ -285,6 +300,9 @@ fun TopicScreen(
                 onBlockTopicAuthor = {
                     uiState.topic?.toModerationTarget()?.let(viewModel::blockAuthor)
                 },
+                onTagTopicAuthor = uiState.topic
+                    ?.takeIf { memberTagsEnabled && it.authorName.isNotBlank() }
+                    ?.let { topic -> { tagEditorTarget = topic.authorName to topic.member?.avatarUrl } },
             )
 
             if (uiState.moderationActionKey != null) {
@@ -416,6 +434,11 @@ fun TopicScreen(
                                     onBlockAuthor = {
                                         viewModel.blockAuthor(floorReply.toModerationTarget(topicId))
                                     },
+                                    onTagAuthor = floorReply.reply
+                                        .takeIf { memberTagsEnabled && it.authorName.isNotBlank() }
+                                        ?.let { reply ->
+                                            { tagEditorTarget = reply.authorName to reply.member?.avatarUrl }
+                                        },
                                 )
                             }
                         }
@@ -540,6 +563,7 @@ private fun TopicTopBar(
     moderationBusy: Boolean,
     onReportTopic: () -> Unit,
     onBlockTopicAuthor: () -> Unit,
+    onTagTopicAuthor: (() -> Unit)? = null,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     // 返回键独立在左、节点名居中（iOS principal 位）—— 两个功能拉开距离，避免误点。
@@ -659,6 +683,15 @@ private fun TopicTopBar(
                         },
                     )
                 }
+                onTagTopicAuthor?.let { tagAuthor ->
+                    DropdownMenuItem(
+                        text = { Text("标记 @$topicAuthor") },
+                        onClick = {
+                            menuExpanded = false
+                            tagAuthor()
+                        },
+                    )
+                }
             }
         }
         }
@@ -714,6 +747,10 @@ private fun TopicCard(
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             if (isPro) ProBadge()
+                            MemberTagChips(
+                                tags = memberTagsFor(topic.authorName),
+                                modifier = Modifier.padding(start = 5.dp),
+                            )
                         }
                         Text(
                             text = relativeTimeText(topic.activityTimestamp),
@@ -1128,6 +1165,7 @@ private fun ReplyRow(
     authorBlocked: Boolean,
     onReport: () -> Unit,
     onBlockAuthor: () -> Unit,
+    onTagAuthor: (() -> Unit)? = null,
 ) {
     val reply = floorReply.reply
     var menuExpanded by remember(reply.id) { mutableStateOf(false) }
@@ -1172,6 +1210,11 @@ private fun ReplyRow(
                     )
                     if (floorReply.isAuthor) AuthorBadge()
                     if (isPro) ProBadge()
+                    MemberTagChips(
+                        tags = memberTagsFor(reply.authorName),
+                        maxVisible = 2,
+                        modifier = Modifier.padding(start = 5.dp),
+                    )
                     Text(
                         text = relativeTimeText(reply.created),
                         style = MaterialTheme.typography.labelMedium.copy(
@@ -1237,6 +1280,15 @@ private fun ReplyRow(
                                 onClick = {
                                     menuExpanded = false
                                     onBlockAuthor()
+                                },
+                            )
+                        }
+                        onTagAuthor?.let { tagAuthor ->
+                            DropdownMenuItem(
+                                text = { Text("标记 @${reply.authorName}") },
+                                onClick = {
+                                    menuExpanded = false
+                                    tagAuthor()
                                 },
                             )
                         }

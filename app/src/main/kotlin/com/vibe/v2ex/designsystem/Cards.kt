@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.vibe.v2ex.data.model.Topic
 
 /** 白卡容器 — 对齐当前 iOS Theme.Metric.cardRadius（24）。 */
@@ -196,7 +197,12 @@ fun TopicMetaLine(topic: Topic, modifier: Modifier = Modifier, showAuthor: Boole
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
         )
+        // 作者的第一条用户标记。列表行不显示作者名，标记跟在 meta 后面，靠头像对应到人。
+        memberTagsFor(topic.authorName).firstOrNull()?.let { tag ->
+            MemberTagChip(text = tag, fontSize = 9.sp, modifier = Modifier.padding(start = 6.dp))
+        }
     }
 }
 
@@ -280,6 +286,9 @@ fun FeaturedTopicCard(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(start = 8.dp),
                 )
+                memberTagsFor(topic.authorName).firstOrNull()?.let { tag ->
+                    MemberTagChip(text = tag, modifier = Modifier.padding(start = 5.dp))
+                }
                 Text(
                     text = " · ",
                     style = MaterialTheme.typography.bodySmall,

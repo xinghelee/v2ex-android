@@ -22,8 +22,8 @@ android {
         applicationId = "com.vibe.v2ex"
         minSdk = 26
         targetSdk = 37
-        versionCode = 9
-        versionName = "1.2.3"
+        versionCode = 10
+        versionName = "1.2.4"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -108,6 +108,7 @@ dependencies {
     implementation(libs.retrofit.converter.kotlinx.serialization)
     implementation(libs.okhttp.core)
     implementation(libs.okhttp.logging.interceptor)
+    implementation(libs.okhttp.dnsoverhttps)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 
