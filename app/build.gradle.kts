@@ -22,8 +22,8 @@ android {
         applicationId = "com.vibe.v2ex"
         minSdk = 26
         targetSdk = 37
-        versionCode = 12
-        versionName = "1.2.6"
+        versionCode = 13
+        versionName = "1.2.7"
 
         vectorDrawables {
             useSupportLibrary = true
