@@ -1,5 +1,6 @@
 package com.vibe.v2ex.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -14,6 +15,14 @@ data class OfflineTopicEntity(
     val readingProgress: Int = 0,
     /** false = the user tapped "save offline"; true = auto-cached by the followed-nodes background sync. */
     val automatic: Boolean = false,
+    // 列表摘要列（1.2.5 起，见 OfflineTopicSummary）：列表只读这几列，绝不整表拉 topicJson / repliesJson。
+    @ColumnInfo(defaultValue = "") val title: String = "",
+    @ColumnInfo(defaultValue = "") val nodeTitle: String = "",
+    @ColumnInfo(defaultValue = "") val authorName: String = "",
+    val authorId: Long? = null,
+    @ColumnInfo(defaultValue = "0") val replyCount: Int = 0,
+    /** topicJson + repliesJson 的字符数，给「占用 xx MB」用。 */
+    @ColumnInfo(defaultValue = "0") val byteSize: Int = 0,
 )
 
 /**

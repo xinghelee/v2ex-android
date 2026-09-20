@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -13,8 +14,20 @@ interface OfflineTopicDao {
     @Query("SELECT * FROM offline_topics WHERE topicId = :topicId")
     suspend fun get(topicId: Long): OfflineTopicEntity?
 
-    @Query("SELECT * FROM offline_topics ORDER BY cachedAt DESC")
-    fun observeAll(): Flow<List<OfflineTopicEntity>>
+    @Query("SELECT automatic FROM offline_topics WHERE topicId = :topicId")
+    suspend fun isAutomatic(topicId: Long): Boolean?
+
+    /**
+     * 列表只读摘要列。这张表不能再有整表 `SELECT *`：正文 + 回复 JSON 几十篇就超过 CursorWindow
+     * 的 2 MB，游标翻页途中一旦有写入（自动缓存 / 淘汰）改变行数就会越界崩溃（issue #5）。
+     * 摘要行只有几百字节，一次装进窗口；再套只读事务，读到的永远是同一份快照。
+     */
+    @Transaction
+    @Query(
+        "SELECT topicId, title, nodeName, nodeTitle, authorName, authorId, replyCount, cachedAt, automatic, byteSize " +
+            "FROM offline_topics ORDER BY cachedAt DESC",
+    )
+    fun observeSummaries(): Flow<List<OfflineSummary>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: OfflineTopicEntity)

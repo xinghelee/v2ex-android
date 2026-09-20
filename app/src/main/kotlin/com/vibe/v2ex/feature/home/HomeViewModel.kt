@@ -143,8 +143,8 @@ class HomeViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            offlineRepository.observeAll()
-                .map { bundles -> bundles.mapTo(mutableSetOf()) { it.topic.id } }
+            offlineRepository.observeSummaries()
+                .map { summaries -> summaries.mapTo(mutableSetOf()) { it.topicId } }
                 .collect { ids -> _uiState.update { it.copy(offlineIds = ids) } }
         }
         viewModelScope.launch {

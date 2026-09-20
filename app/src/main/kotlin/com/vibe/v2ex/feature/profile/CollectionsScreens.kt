@@ -56,7 +56,7 @@ import com.vibe.v2ex.data.remote.V2exApiV1
 import com.vibe.v2ex.data.remote.V2exApiV2
 import com.vibe.v2ex.data.repository.FavoritesRepository
 import com.vibe.v2ex.data.repository.HistoryRepository
-import com.vibe.v2ex.data.repository.OfflineBundle
+import com.vibe.v2ex.data.local.OfflineSummary
 import com.vibe.v2ex.data.repository.OfflineRepository
 import com.vibe.v2ex.designsystem.CardGroupItem
 import com.vibe.v2ex.designsystem.ReplyCount
@@ -453,7 +453,7 @@ private fun sameDay(a: Calendar, b: Calendar): Boolean =
 
 data class OfflineListUiState(
     /** Visible projection; raw totals continue to describe storage and clear operations. */
-    val bundles: List<OfflineBundle> = emptyList(),
+    val bundles: List<OfflineSummary> = emptyList(),
     val rawCount: Int = 0,
     val rawByteSize: Int = 0,
 )
@@ -464,13 +464,13 @@ class OfflineListViewModel @Inject constructor(
     moderationStore: ModerationStore,
 ) : ViewModel() {
     val uiState: StateFlow<OfflineListUiState> = combine(
-        offlineRepository.observeAll(),
+        offlineRepository.observeSummaries(),
         moderationStore.collectionModerationRules(),
     ) { rawBundles, rules ->
         OfflineListUiState(
             bundles = rawBundles.filterNot { bundle -> rules.hides(bundle.topic) },
             rawCount = rawBundles.size,
-            rawByteSize = rawBundles.sumOf(OfflineBundle::byteSize),
+            rawByteSize = rawBundles.sumOf(OfflineSummary::byteSize),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OfflineListUiState())
 

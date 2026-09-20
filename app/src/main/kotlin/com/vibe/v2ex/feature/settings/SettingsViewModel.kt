@@ -114,7 +114,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     private val offline = combine(
-        offlineRepository.observeAll(),
+        offlineRepository.observeSummaries(),
         autoOfflineCoordinator.progress,
         autoOfflineCoordinator.result,
     ) { bundles, progress, message ->

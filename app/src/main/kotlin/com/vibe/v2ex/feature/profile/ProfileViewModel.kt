@@ -141,7 +141,7 @@ class ProfileViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            offlineRepository.observeAll().collect { bundles ->
+            offlineRepository.observeSummaries().collect { bundles ->
                 _uiState.update {
                     it.copy(
                         offlineCount = bundles.size,

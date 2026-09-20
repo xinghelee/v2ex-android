@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReportEntity::class,
         MemberTagEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -45,7 +45,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        /** 1.2.3 -> 1.3.0：新增用户标记表，纯新增，无数据迁移。 */
+        /** 1.2.3 -> 1.2.4：新增用户标记表，纯新增，无数据迁移。 */
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -53,6 +53,41 @@ abstract class AppDatabase : RoomDatabase() {
                         "`usernameKey` TEXT NOT NULL, `username` TEXT NOT NULL, `tagsJson` TEXT NOT NULL, " +
                         "`avatarUrl` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`usernameKey`))",
                 )
+            }
+        }
+
+        /** 1.2.4 -> 1.2.5：offline_topics 增加列表摘要列并回填（issue #5，见 [OfflineTopicSummary]）。 */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `offline_topics` ADD COLUMN `title` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `offline_topics` ADD COLUMN `nodeTitle` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `offline_topics` ADD COLUMN `authorName` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `offline_topics` ADD COLUMN `authorId` INTEGER")
+                db.execSQL("ALTER TABLE `offline_topics` ADD COLUMN `replyCount` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `offline_topics` ADD COLUMN `byteSize` INTEGER NOT NULL DEFAULT 0")
+
+                // 回填先只取 id，再逐篇读正文：整批 SELECT * 正是这次要消灭的读法，迁移自己不能再踩一次。
+                val ids = ArrayList<Long>()
+                db.query("SELECT topicId FROM offline_topics").use { cursor ->
+                    while (cursor.moveToNext()) ids += cursor.getLong(0)
+                }
+                for (id in ids) {
+                    val row = db.query(
+                        "SELECT topicJson, LENGTH(topicJson) + LENGTH(repliesJson) FROM offline_topics WHERE topicId = ?",
+                        arrayOf<Any>(id),
+                    ).use { cursor ->
+                        if (cursor.moveToFirst()) cursor.getString(0) to cursor.getInt(1) else null
+                    } ?: continue
+                    val summary = OfflineTopicSummary.fromTopicJson(row.first)
+                    db.execSQL(
+                        "UPDATE offline_topics SET title = ?, nodeTitle = ?, authorName = ?, authorId = ?, " +
+                            "replyCount = ?, byteSize = ? WHERE topicId = ?",
+                        arrayOf<Any?>(
+                            summary.title, summary.nodeTitle, summary.authorName, summary.authorId,
+                            summary.replyCount, row.second, id,
+                        ),
+                    )
+                }
             }
         }
     }
