@@ -2,6 +2,8 @@ package com.vibe.v2ex.data.remote
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -26,19 +28,22 @@ class PolishSettingsNoteTest {
     private fun editPage(content: String): String =
         "<form method='post'><textarea id='note_content' class='note_editor' name='content'>$content</textarea></form>"
 
+    // 2.x 的写法：标签是纯字符串；Bob_1 是 1.x 遗留的 {name} 对象，两种都要认。
     private val backup = """
-        {"options":{"theme":{"mode":"compact"}},
+        {"options":{"theme":{"mode":"compact"},"nestedReply":{"display":"indent"}},
          "api":{"pat":"secret-token","limit":600},
          "member-tag":{
-           "alice":{"tags":[{"name":"靠谱"},{"name":" 老哥 "},{"name":""},{"name":"靠谱"}],"avatar":"https://cdn.v2ex.com/a.png"},
+           "alice":{"tags":["靠谱"," 老哥 ","","靠谱"],"avatar":"https://cdn.v2ex.com/a.png"},
            "Bob_1":{"tags":[{"name":"广告号"}]},
-           "bad name":{"tags":[{"name":"x"}]},
+           "bad name":{"tags":["x"]},
            "empty":{"tags":[]},
            "notobject":"oops",
-           "numbers":{"tags":[{"name":12}]}
+           "numbers":{"tags":[12,{"name":34}]}
          },
-         "settings-sync":{"version":7,"lastSyncTime":1700000000000}}
+         "settings-sync":{"version":7,"lastSyncTime":1700000000000,"lastCheckTime":1700000000000}}
     """.trimIndent()
+
+    private val validOptions = """{"options":{"theme":{},"nestedReply":{}}"""
 
     @Test
     fun `finds the first note whose title starts with the mark`() {
@@ -85,12 +90,16 @@ class PolishSettingsNoteTest {
         assertNull(PolishSettingsNoteParser.parse(1, "$mark{not json"))
         assertNull(PolishSettingsNoteParser.parse(1, "$mark[1,2]"))
         assertNull(PolishSettingsNoteParser.parse(1, "$mark{\"member-tag\":{}}"))
-        assertNull(PolishSettingsNoteParser.parse(1, mark + "{\"options\":{}}" + " ".repeat(PolishSettingsNoteParser.MAX_CONTENT_CHARS)))
-        val minimal = PolishSettingsNoteParser.parse(1, "$mark{\"options\":{}}")
+        assertNull(PolishSettingsNoteParser.parse(1, mark + "$validOptions}" + " ".repeat(PolishSettingsNoteParser.MAX_CONTENT_CHARS)))
+        // 插件 2.x 不认的都拒绝：旧版 App 新建记事本时写的空 options 就属于这种。
+        assertNull(PolishSettingsNoteParser.parse(1, "$mark{\"options\":{}}"))
+        assertNull(PolishSettingsNoteParser.parse(1, "$mark{\"options\":{\"theme\":{}}}"))
+        assertNull(PolishSettingsNoteParser.parse(1, "$mark{\"options\":\"x\"}"))
+        val minimal = PolishSettingsNoteParser.parse(1, "$mark$validOptions}")
         assertNotNull(minimal)
         assertTrue(minimal!!.memberTags.isEmpty())
         assertEquals(0, minimal.syncVersion)
-        assertEquals(0, PolishSettingsNoteParser.parse(1, "$mark{\"options\":{},\"settings-sync\":{\"version\":\"x\"}}")!!.syncVersion)
+        assertEquals(0, PolishSettingsNoteParser.parse(1, "$mark$validOptions,\"settings-sync\":{\"version\":\"x\"}}")!!.syncVersion)
     }
 
     @Test
@@ -109,40 +118,24 @@ class PolishSettingsNoteTest {
         val root = Json.parseToJsonElement(content.removePrefix(mark)) as JsonObject
         assertEquals("secret-token", root.getValue("api").jsonObject.getValue("pat").jsonPrimitive.content)
         assertEquals("compact", root.getValue("options").jsonObject.getValue("theme").jsonObject.getValue("mode").jsonPrimitive.content)
-        assertEquals("8", root.getValue("settings-sync").jsonObject.getValue("version").jsonPrimitive.content)
-        assertEquals("1800000000000", root.getValue("settings-sync").jsonObject.getValue("lastSyncTime").jsonPrimitive.content)
+        val syncInfo = root.getValue("settings-sync").jsonObject
+        assertEquals("8", syncInfo.getValue("version").jsonPrimitive.content)
+        assertEquals("1800000000000", syncInfo.getValue("lastSyncTime").jsonPrimitive.content)
+        assertEquals("1800000000000", syncInfo.getValue("lastCheckTime").jsonPrimitive.content)
         val tags = root.getValue("member-tag").jsonObject
         assertEquals(setOf("alice", "carol"), tags.keys)
         assertFalse(tags.getValue("alice").jsonObject.containsKey("avatar"))
         assertEquals("https://cdn.v2ex.com/c.png", tags.getValue("carol").jsonObject.getValue("avatar").jsonPrimitive.content)
+        // 插件 2.x 渲染时直接 tags.join，写成 {name} 对象会显示成 [object Object]。
+        assertEquals(
+            listOf("靠谱", "老哥", "新增"),
+            tags.getValue("alice").jsonObject.getValue("tags").jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertTrue(tags.getValue("alice").jsonObject.getValue("tags").jsonArray.all { it is JsonPrimitive && it.isString })
 
         // 写回的内容必须能被自己（也就是插件的同一套规则）再解析出来。
         val reparsed = PolishSettingsNoteParser.parse(222, content)!!
         assertEquals(listOf("靠谱", "老哥", "新增"), reparsed.memberTags.getValue("alice").tags)
         assertEquals(8, reparsed.syncVersion)
-    }
-
-    @Test
-    fun `build content for a brand new note adds an empty options key`() {
-        val content = PolishSettingsNoteParser.buildContent(
-            root = null,
-            memberTags = mapOf("alice" to PolishMemberTag(listOf("靠谱"))),
-            version = 1,
-            nowMillis = 1,
-        )
-        val note = PolishSettingsNoteParser.parse(5, content)
-        assertNotNull(note)
-        assertEquals(1, note!!.syncVersion)
-        assertEquals(listOf("靠谱"), note.memberTags.getValue("alice").tags)
-        assertTrue(note.root.getValue("options").jsonObject.isEmpty())
-    }
-
-    @Test
-    fun `sync byte estimate counts key name plus utf8 json`() {
-        val empty = PolishSettingsNoteParser.memberTagsSyncBytes(emptyMap())
-        assertEquals("member-tag".length + 2, empty)
-        val one = PolishSettingsNoteParser.memberTagsSyncBytes(mapOf("a" to PolishMemberTag(listOf("靠谱"))))
-        assertTrue(one > empty)
-        assertTrue(one < PolishSettingsNoteParser.SYNC_ITEM_QUOTA_BYTES)
     }
 }

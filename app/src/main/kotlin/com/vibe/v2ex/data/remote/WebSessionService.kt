@@ -635,20 +635,23 @@ class WebSessionService @Inject constructor(
                 val cookie = validCookie(cookieHeader)
                 val noteId = readPolishNoteId(cookie) ?: return@websiteResult null
                 PolishSettingsNoteParser.parse(noteId, readPolishNoteContent(noteId, cookie))
-                    ?: websiteFailure("记事本内容不是 V2EX Polish 的备份格式，请先在插件里重新备份一次")
+                    ?: websiteFailure(
+                        "记事本里的 V2EX_Polish_settings 不是插件认可的备份格式。请在插件弹窗里点「开始备份」；" +
+                            "仍不行就在 V2EX 记事本里删掉这篇再备份一次",
+                    )
             }
         }
 
     /**
-     * 把整篇内容写进记事本；[noteId] 为空时新建（和插件一样 `parent_id=0`）。插件的请求不带
-     * once，这里编辑页表单里若有 once 也一并带上。HTTP 200 不算数：写完重新读回逐字比对，
-     * 新建的还要能在列表里按标题找到，官网没存下来就报失败。返回记事本 id。
+     * 把整篇内容写进插件已有的备份记事本（新建只交给插件，见 [PolishSettingsNoteParser.buildContent]）。
+     * 插件的请求不带 once，这里编辑页表单里若有 once 也一并带上。HTTP 200 不算数：写完重新读回
+     * 逐字比对，官网没存下来就报失败。
      */
-    suspend fun writePolishSettingsNote(cookieHeader: String, noteId: Long?, content: String): Result<Long> =
+    suspend fun writePolishSettingsNote(cookieHeader: String, noteId: Long, content: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             websiteResult("写入记事本失败，请检查网络后重试") {
                 val cookie = validCookie(cookieHeader)
-                val formPath = if (noteId != null) "/notes/edit/$noteId" else "/notes/new"
+                val formPath = "/notes/edit/$noteId"
                 val formPage = executeWebsiteGet(formPath, cookie, DESKTOP_USER_AGENT)
                 validateWebsitePage(formPage, operation = "打开记事本编辑页", expectedPath = formPath)
                 val once = Jsoup.parse(formPage.html).selectFirst("form input[name=once]")?.attr("value")
@@ -656,10 +659,7 @@ class WebSessionService @Inject constructor(
                     .setType(MultipartBody.FORM)
                     .addFormDataPart("content", content)
                     .addFormDataPart("syntax", "0")
-                    .apply {
-                        if (noteId == null) addFormDataPart("parent_id", "0")
-                        once?.takeIf(String::isNotBlank)?.let { addFormDataPart("once", it) }
-                    }
+                    .apply { once?.takeIf(String::isNotBlank)?.let { addFormDataPart("once", it) } }
                     .build()
                 val response = executeWebsitePost(formPath, cookie, DESKTOP_USER_AGENT, body, refererPath = formPath)
                 if (response.finalPath == "/signin" || response.finalPath.startsWith("/2fa") || response.code == 401) {
@@ -671,11 +671,8 @@ class WebSessionService @Inject constructor(
                     websiteFailure(problem.text().ifBlank { "记事本被官网拒绝，请稍后重试" })
                 }
                 currentCoroutineContext().ensureActive()
-                val storedId = noteId ?: readPolishNoteId(cookie)
-                    ?: websiteFailure("官网未确认新建的记事本，请稍后重试")
-                val stored = readPolishNoteContent(storedId, cookie)
+                val stored = readPolishNoteContent(noteId, cookie)
                 if (stored.trim() != content.trim()) websiteFailure("官网未确认记事本内容，请稍后重试")
-                storedId
             }
         }
 

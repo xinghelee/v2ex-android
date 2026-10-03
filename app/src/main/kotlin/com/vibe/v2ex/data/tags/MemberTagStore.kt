@@ -88,10 +88,11 @@ class MemberTagStore @Inject constructor(
 
     /** 拉取：记事本里的标记并入本地（只增不删）。 */
     fun pullFromPolish() = launchSync { cookie ->
-        val note = webSessionService.polishSettingsNote(cookie).getOrThrow()
-            ?: syncFailure("没有找到 V2EX Polish 的备份记事本，请先在浏览器插件里完成一次备份")
+        val note = webSessionService.polishSettingsNote(cookie).getOrThrow() ?: syncFailure(NO_POLISH_NOTE)
         val remote = note.memberTags.toRecords()
-        if (remote.isEmpty()) syncFailure("V2EX Polish 备份里还没有用户标签")
+        if (remote.isEmpty()) {
+            syncFailure("V2EX Polish 备份里还没有用户标签。插件里改过标签会自动备份，也可以在插件弹窗里点「开始备份」")
+        }
         val local = dao.all().map { it.toRecord() }
         val changed = applyMerged(local, mergeMemberTags(local, remote))
         buildString {
@@ -100,34 +101,30 @@ class MemberTagStore @Inject constructor(
         }
     }
 
-    /** 上传：本地标记并入记事本（同样只增不删），写回后本地也补齐远端有而本地没有的。 */
+    /**
+     * 上传：本地标记并入记事本（同样只增不删），写回后本地也补齐远端有而本地没有的。
+     * 插件拉取时按用户合并且本地优先，所以插件里已有标记的用户不会被这边改动覆盖。
+     */
     fun pushToPolish() = launchSync { cookie ->
         val local = dao.all().map { it.toRecord() }
-        val note = webSessionService.polishSettingsNote(cookie).getOrThrow()
-        val remote = note?.memberTags?.toRecords().orEmpty()
+        val note = webSessionService.polishSettingsNote(cookie).getOrThrow() ?: syncFailure(NO_POLISH_NOTE)
+        val remote = note.memberTags.toRecords()
         if (local.isEmpty() && remote.isEmpty()) syncFailure("本地还没有任何用户标记，先给用户加个标记再上传")
         val merged = mergeMemberTags(remote, local)
-        if (note != null && merged.sameAs(remote)) {
+        if (merged.sameAs(remote)) {
             applyMerged(local, merged)
             return@launchSync "V2EX Polish 已经有全部标记，没有需要上传的内容"
         }
-        val polishTags = merged.toPolishMap()
         val content = PolishSettingsNoteParser.buildContent(
-            root = note?.root,
-            memberTags = polishTags,
-            version = (note?.syncVersion ?: 0) + 1,
+            root = note.root,
+            memberTags = merged.toPolishMap(),
+            version = note.syncVersion + 1,
             nowMillis = System.currentTimeMillis(),
         )
-        webSessionService.writePolishSettingsNote(cookie, note?.noteId, content).getOrThrow()
+        webSessionService.writePolishSettingsNote(cookie, note.noteId, content).getOrThrow()
         applyMerged(local, merged)
-        buildString {
-            append(if (note == null) "已新建备份记事本并上传 " else "已上传 ")
-            append("${merged.size} 位用户的标记，浏览器插件会在下次检查时自动同步")
-            val bytes = PolishSettingsNoteParser.memberTagsSyncBytes(polishTags)
-            if (bytes > PolishSettingsNoteParser.SYNC_ITEM_QUOTA_BYTES) {
-                append("。注意：标记数据约 ${bytes / 1024} KB，超过了插件 8 KB 的存储上限，浏览器端可能无法完整保存")
-            }
-        }
+        "已上传 ${merged.size} 位用户的标记。插件会在你下次打开 V2EX 网页时同步（每 10 分钟最多检查一次），" +
+            "只补上插件里还没有标记的用户"
     }
 
     fun consumeMessage() = _syncState.update { it.copy(message = null) }
@@ -188,6 +185,8 @@ class MemberTagStore @Inject constructor(
         updatedAt = updatedAt,
     )
 }
+
+private const val NO_POLISH_NOTE = "没有找到 V2EX Polish 的备份记事本，请先在浏览器插件弹窗里点「开始备份」"
 
 private val memberTagJson = Json { ignoreUnknownKeys = true }
 private val TAGS_SERIALIZER = ListSerializer(String.serializer())
