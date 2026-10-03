@@ -1,6 +1,5 @@
 package com.vibe.v2ex.feature.topic
 
-import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -88,7 +87,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vibe.v2ex.data.model.Topic
 import com.vibe.v2ex.data.moderation.ReportTargetType
@@ -107,6 +105,7 @@ import com.vibe.v2ex.designsystem.cardGroupPosition
 import com.vibe.v2ex.designsystem.memberTagsFor
 import com.vibe.v2ex.designsystem.relativeTimeText
 import com.vibe.v2ex.feature.tags.MemberTagEditorDialog
+import com.vibe.v2ex.navigation.openInBrowser
 import java.util.Locale
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.delay
@@ -282,7 +281,7 @@ fun TopicScreen(
                 onShareCard = { showShareCard = true },
                 onOpenInBrowser = {
                     val topic = uiState.topic ?: return@TopicTopBar
-                    context.startActivity(Intent(Intent.ACTION_VIEW, topic.webUrl.toUri()))
+                    context.openInBrowser(topic.webUrl)
                 },
                 topicAuthor = uiState.topic?.authorName.orEmpty(),
                 topicAuthorIsSelf = uiState.topic?.authorName?.equals(
@@ -489,11 +488,7 @@ fun TopicScreen(
                     if (at >= 0) viewModel.onReplyDraftChange(text.take(at) + "@$name ")
                 },
                 onSend = viewModel::sendReply,
-                onOpenWebReply = {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, "https://www.v2ex.com/t/$topicId#reply".toUri()),
-                    )
-                },
+                onOpenWebReply = { context.openInBrowser("https://www.v2ex.com/t/$topicId#reply") },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }

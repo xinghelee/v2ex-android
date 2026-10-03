@@ -7,6 +7,15 @@
     <!-- 新提醒推送（Android 13+ 运行时申请，默认关闭的功能打开时才申请）。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- 「在 V2EX 打开」要找出默认浏览器，绕开本 App 自己对 v2ex.com 链接的接管（navigation/BrowserLinks.kt）。 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:name=".V2exApplication"
         android:allowBackup="true"
