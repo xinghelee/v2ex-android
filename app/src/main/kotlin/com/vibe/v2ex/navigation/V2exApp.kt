@@ -195,7 +195,7 @@ fun V2exApp(
     LaunchedEffect(deepLinkUri) {
         val target = deepLinkUri?.toTopicRoute()
         if (target != null && deepLinkUri != initialDeepLinkUri) {
-            navController.navigate(target) { launchSingleTop = true }
+            navController.openTopicLink(target)
         }
         if (deepLinkUri != null) onDeepLinkHandled()
     }
@@ -273,6 +273,21 @@ private fun androidx.navigation.NavHostController.navigateToTab(tab: TabSpec) {
         popUpTo(graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true
         restoreState = true
+    }
+}
+
+/**
+ * 外部链接打开话题。不能用 launchSingleTop：栈顶已是另一篇话题时，它只给同一个返回栈条目换参数，
+ * 条目上的 TopicViewModel 还是按旧 topicId 建的，页面会停在原话题。
+ */
+private fun androidx.navigation.NavHostController.openTopicLink(target: Route.Topic) {
+    val showing = currentBackStackEntry
+        ?.takeIf { it.destination.hasRoute<Route.Topic>() }
+        ?.toRoute<Route.Topic>()
+    when {
+        showing?.topicId != target.topicId -> navigate(target)
+        // 正在看的就是这篇：不带楼层就原地不动；带楼层则替换当前页，让新页面定位到那一楼。
+        target.initialFloor != null -> navigate(target) { popUpTo<Route.Topic> { inclusive = true } }
     }
 }
 
