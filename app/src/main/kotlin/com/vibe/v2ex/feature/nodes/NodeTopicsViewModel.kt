@@ -16,6 +16,7 @@ import com.vibe.v2ex.data.remote.V2exApiV2
 import com.vibe.v2ex.data.remote.WebSessionService
 import com.vibe.v2ex.data.repository.FeedCacheRepository
 import com.vibe.v2ex.data.repository.NodesRepository
+import com.vibe.v2ex.data.repository.TopicPreviewCache
 import com.vibe.v2ex.navigation.Route
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -93,6 +94,7 @@ class NodeTopicsViewModel @Inject constructor(
     private val followedNodesStore: FollowedNodesStore,
     private val nodesRepository: NodesRepository,
     private val moderationStore: ModerationStore,
+    private val topicPreviews: TopicPreviewCache,
     private val networkErrors: NetworkErrorMessages,
     readStateStore: ReadStateStore,
     settingsDataStore: SettingsDataStore,
@@ -176,6 +178,7 @@ class NodeTopicsViewModel @Inject constructor(
             // 断网时先把上次的快照放出来，列表里的帖子正文多半也已经离线了。
             if (_uiState.value.raw.isEmpty()) {
                 feedCacheRepository.load(feedKey)?.let { cached ->
+                    topicPreviews.remember(cached.topics)
                     _uiState.update { state ->
                         if (state.raw.isEmpty()) {
                             applyModeration(state.copy(raw = cached.topics, cachedAt = cached.updatedAt))
@@ -295,7 +298,10 @@ class NodeTopicsViewModel @Inject constructor(
         return state.copy(visibleRaw = visible)
     }
 
-    private suspend fun fetchPage(page: Int, publicWebsite: Boolean): TopicPage {
+    private suspend fun fetchPage(page: Int, publicWebsite: Boolean): TopicPage =
+        fetchPageFromNetwork(page, publicWebsite).also { topicPreviews.remember(it.topics) }
+
+    private suspend fun fetchPageFromNetwork(page: Int, publicWebsite: Boolean): TopicPage {
         if (publicWebsite) {
             return webSessionService.publicTopicPage(nodeName = nodeName, page = page)
                 .getOrThrow()

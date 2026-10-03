@@ -11,6 +11,7 @@ import com.vibe.v2ex.data.nodes.NodeCatalog
 import com.vibe.v2ex.data.repository.FeedCacheRepository
 import com.vibe.v2ex.data.repository.HomeRepository
 import com.vibe.v2ex.data.repository.NodesRepository
+import com.vibe.v2ex.data.repository.TopicPreviewCache
 import com.vibe.v2ex.data.remote.NetworkErrorMessages
 import com.vibe.v2ex.data.repository.OfflineRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -85,6 +86,7 @@ class HomeViewModel @Inject constructor(
     private val followedNodesStore: FollowedNodesStore,
     private val moderationStore: ModerationStore,
     private val networkErrors: NetworkErrorMessages,
+    private val topicPreviews: TopicPreviewCache,
     readStateStore: ReadStateStore,
     settingsDataStore: SettingsDataStore,
     offlineRepository: OfflineRepository,
@@ -313,7 +315,10 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private suspend fun fetch(feed: HomeFeed, page: Int, sources: List<String>): FeedSnapshot = when (feed) {
+    private suspend fun fetch(feed: HomeFeed, page: Int, sources: List<String>): FeedSnapshot =
+        fetchFeed(feed, page, sources).also { topicPreviews.remember(it.topics) }
+
+    private suspend fun fetchFeed(feed: HomeFeed, page: Int, sources: List<String>): FeedSnapshot = when (feed) {
         HomeFeed.Hot -> FeedSnapshot(
             topics = repository.hotTopics().getOrThrow(),
             page = 1,
@@ -359,6 +364,7 @@ class HomeViewModel @Inject constructor(
     private suspend fun hydrateFromCache(feed: HomeFeed, request: Long, diskKey: String) {
         if (feed.key in _uiState.value.topicsByFeed) return
         val cached = feedCacheRepository.load(diskKey) ?: return
+        topicPreviews.remember(cached.topics)
         if (!isCurrent(feed.key, request) || _uiState.value.currentFeed.key != feed.key) return
         displayedRawTopics[feed.key] = cached.topics
         _uiState.update { state ->

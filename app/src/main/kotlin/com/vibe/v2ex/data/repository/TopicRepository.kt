@@ -8,6 +8,7 @@ import com.vibe.v2ex.data.remote.V2exApiV2
 import com.vibe.v2ex.data.remote.WebSessionService
 import kotlin.math.ceil
 import kotlin.math.min
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -40,61 +41,67 @@ class TopicRepository @Inject constructor(
     private val secureStore: SecureStore,
     private val okHttpClient: OkHttpClient,
 ) {
+    /**
+     * 回复和话题同时发：首屏要等两者都回来，串行就是两次往返，走代理时能差出 1 秒以上（issue #7）。
+     * 话题失败时整个 scope 失败，同时发出去的回复请求随之取消。
+     */
     suspend fun loadTopic(topicId: Long): Result<TopicDetail> = runCatching {
-        val hasToken = !secureStore.personalAccessToken.isNullOrBlank()
+        coroutineScope {
+            val hasToken = !secureStore.personalAccessToken.isNullOrBlank()
+            // v2 第 1 页不依赖楼层总数，先发；其余页等话题返回知道总数后再并发拉。
+            val firstV2Page = if (hasToken) async { v2RepliesPage(topicId, 1) } else null
+            val v1Replies = if (hasToken) null else async { apiV1.repliesForTopic(topicId) }
 
-        // v2 is kept current; v1 is unmaintained and can be stale for recent threads.
-        val topic = if (hasToken) {
-            runCatching {
-                apiV2.topic(topicId).let { envelope ->
-                    if (envelope.success == false || envelope.result == null) {
-                        error(envelope.message ?: "话题接口没有返回内容")
+            // v2 is kept current; v1 is unmaintained and can be stale for recent threads.
+            val topic = if (hasToken) {
+                runCatching {
+                    apiV2.topic(topicId).let { envelope ->
+                        if (envelope.success == false || envelope.result == null) {
+                            error(envelope.message ?: "话题接口没有返回内容")
+                        }
+                        envelope.result
                     }
-                    envelope.result
-                }
-            }.getOrNull()
-                ?: apiV1.topic(topicId).firstOrNull()
-        } else {
-            apiV1.topic(topicId).firstOrNull()
-        } ?: error("话题不存在或已删除")
+                }.getOrNull()
+                    ?: apiV1.topic(topicId).firstOrNull()
+            } else {
+                apiV1.topic(topicId).firstOrNull()
+            } ?: error("话题不存在或已删除")
 
-        val replyLoad = if (hasToken) {
-            loadRepliesPaged(topicId, topic.replies)
-        } else {
-            val replies = apiV1.repliesForTopic(topicId)
-            ReplyLoad(
-                replies = replies,
-                warning = if (topic.replies > 0 && replies.size < topic.replies) {
-                    "回复接口暂未同步完整，当前显示 ${replies.size}/${topic.replies} 条"
-                } else {
-                    null
-                },
-            )
+            val replyLoad = if (firstV2Page != null) {
+                loadRepliesPaged(topicId, topic.replies, firstV2Page)
+            } else {
+                val replies = checkNotNull(v1Replies).await()
+                ReplyLoad(
+                    replies = replies,
+                    warning = if (topic.replies > 0 && replies.size < topic.replies) {
+                        "回复接口暂未同步完整，当前显示 ${replies.size}/${topic.replies} 条"
+                    } else {
+                        null
+                    },
+                )
+            }
+
+            TopicDetail(topic, replyLoad.replies, replyLoad.warning)
         }
-
-        TopicDetail(topic, replyLoad.replies, replyLoad.warning)
     }
 
     /** Concurrently fetches up to 20 pages (400 replies), deduped and sorted
      * ascending by id for floor order. A failed page is reported explicitly;
-     * it is never silently converted into an apparently-complete empty page. */
-    private suspend fun loadRepliesPaged(topicId: Long, totalReplies: Int): ReplyLoad = coroutineScope {
-        if (totalReplies <= 0) return@coroutineScope ReplyLoad(emptyList())
+     * it is never silently converted into an apparently-complete empty page.
+     * [firstPage] is already in flight (started alongside the topic request). */
+    private suspend fun loadRepliesPaged(
+        topicId: Long,
+        totalReplies: Int,
+        firstPage: Deferred<Result<List<Reply>>>,
+    ): ReplyLoad = coroutineScope {
+        if (totalReplies <= 0) {
+            firstPage.cancel()
+            return@coroutineScope ReplyLoad(emptyList())
+        }
 
         val pageCount = min(MAX_REPLY_PAGES, maxOf(1, ceil(totalReplies / REPLIES_PER_PAGE.toDouble()).toInt()))
-        val pages = (1..pageCount).map { page ->
-            async {
-                page to runCatching {
-                    apiV2.repliesForTopic(topicId, page).let { envelope ->
-                        if (envelope.success == false || envelope.result == null) {
-                            error(envelope.message ?: "第 $page 页没有返回内容")
-                        }
-                        envelope.result
-                    }
-                }
-            }
-        }
-        val results = pages.map { it.await() }
+        val laterPages = (2..pageCount).map { page -> async { v2RepliesPage(topicId, page) } }
+        val results = (listOf(firstPage) + laterPages).mapIndexed { index, page -> index + 1 to page.await() }
         val firstFailedPage = results.firstOrNull { it.second.isFailure }?.first
 
         // Floors are derived from list position in the UI. Once a page is
@@ -133,6 +140,15 @@ class TopicRepository @Inject constructor(
             else -> null
         }
         ReplyLoad(replies, warning)
+    }
+
+    private suspend fun v2RepliesPage(topicId: Long, page: Int): Result<List<Reply>> = runCatching {
+        apiV2.repliesForTopic(topicId, page).let { envelope ->
+            if (envelope.success == false || envelope.result == null) {
+                error(envelope.message ?: "第 $page 页没有返回内容")
+            }
+            envelope.result
+        }
     }
 
     suspend fun postReply(topicId: Long, content: String): Result<Unit> =

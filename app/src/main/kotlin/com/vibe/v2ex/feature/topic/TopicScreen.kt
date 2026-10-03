@@ -268,7 +268,7 @@ fun TopicScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             TopicTopBar(
-                nodeTitle = uiState.topic?.nodeTitle?.ifBlank { null } ?: "话题",
+                nodeTitle = (uiState.topic ?: uiState.preview)?.nodeTitle?.ifBlank { null } ?: "话题",
                 favorited = uiState.favorited,
                 favoriteSyncing = uiState.favoriteSyncing,
                 isOfflineSaved = uiState.isOfflineSaved,
@@ -335,11 +335,18 @@ fun TopicScreen(
                     onRestore = viewModel::restoreHiddenTopic,
                     modifier = Modifier.fillMaxSize(),
                 )
-                topic == null && uiState.isLoading -> Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
+                topic == null && uiState.isLoading -> {
+                    val preview = uiState.preview
+                    if (preview != null) {
+                        TopicPreviewLoading(preview = preview, onAuthorClick = onMemberClick)
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
                 }
                 topic == null && error != null -> ErrorState(
                     message = error,
@@ -369,6 +376,12 @@ fun TopicScreen(
                                     isPro = topic.authorName in uiState.proMembers,
                                     isOfflineSaved = uiState.isOfflineSaved,
                                     onAuthorClick = onMemberClick,
+                                    // 列表给的头像尺寸和接口不同（_xlarge vs _normal），沿用预览那张，
+                                    // 免得内容到了头像重新加载闪一下。
+                                    avatarUrl = uiState.preview
+                                        ?.takeIf { it.authorName == topic.authorName }
+                                        ?.member?.avatarUrl
+                                        ?: topic.member?.avatarUrl,
                                 )
                             }
                             item(key = "reply-header") {
@@ -700,6 +713,33 @@ private fun TopicTopBar(
 }
 
 /** 话题主卡：标题、作者行（可点进用户页 + PRO + 浏览数 + 离线标记）、正文、附言。 */
+/**
+ * 完整内容到之前，用列表带来的摘要先画标题卡，下面转圈。边距和正式列表的 contentPadding 一致，
+ * 内容到了标题卡原地不动。
+ */
+@Composable
+private fun TopicPreviewLoading(preview: Topic, onAuthorClick: (String) -> Unit) {
+    Column(modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 6.dp)) {
+        TopicCard(
+            topic = preview,
+            blocks = emptyList(),
+            appends = emptyList(),
+            views = null,
+            isPro = false,
+            isOfflineSaved = false,
+            onAuthorClick = onAuthorClick,
+            // 列表给的是最后回复时间，和详情接口的时间戳不是一回事，先留空免得加载完跳一下。
+            showActivityTime = false,
+        )
+        Box(
+            modifier = Modifier.fillMaxWidth().padding(top = 32.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator()
+        }
+    }
+}
+
 @Composable
 private fun TopicCard(
     topic: Topic,
@@ -709,6 +749,8 @@ private fun TopicCard(
     isPro: Boolean,
     isOfflineSaved: Boolean,
     onAuthorClick: (String) -> Unit,
+    showActivityTime: Boolean = true,
+    avatarUrl: String? = topic.member?.avatarUrl,
 ) {
     V2Card(
         modifier = Modifier.border(
@@ -734,7 +776,7 @@ private fun TopicCard(
                         .clip(RoundedCornerShape(8.dp))
                         .clickable(enabled = topic.authorName.isNotBlank()) { onAuthorClick(topic.authorName) },
                 ) {
-                    Avatar(username = topic.authorName, url = topic.member?.avatarUrl, size = 30.dp)
+                    Avatar(username = topic.authorName, url = avatarUrl, size = 30.dp)
                     Column(modifier = Modifier.padding(start = 9.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -752,8 +794,9 @@ private fun TopicCard(
                                 modifier = Modifier.padding(start = 5.dp),
                             )
                         }
+                        // 不显示时也占住这一行，标题卡高度不变。
                         Text(
-                            text = relativeTimeText(topic.activityTimestamp),
+                            text = if (showActivityTime) relativeTimeText(topic.activityTimestamp) else "",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Normal,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -19,6 +19,7 @@ import com.vibe.v2ex.data.repository.DraftRepository
 import com.vibe.v2ex.data.repository.FavoritesRepository
 import com.vibe.v2ex.data.repository.HistoryRepository
 import com.vibe.v2ex.data.repository.OfflineRepository
+import com.vibe.v2ex.data.repository.TopicPreviewCache
 import com.vibe.v2ex.data.repository.TopicRepository
 import com.vibe.v2ex.data.repository.TopicSummaryRepository
 import com.vibe.v2ex.designsystem.ContentBlock
@@ -81,6 +82,8 @@ data class TopicModerationCompletion(
 
 data class TopicUiState(
     val topic: Topic? = null,
+    /** 列表里带过来的摘要（没有正文），[topic] 到之前先用它画标题卡（issue #7）。 */
+    val preview: Topic? = null,
     /** False until local moderation visibility has emitted, preventing a hidden topic flash. */
     val moderationReady: Boolean = false,
     val isTopicHidden: Boolean = false,
@@ -171,6 +174,7 @@ class TopicViewModel @Inject constructor(
     private val topicSummaryRepository: TopicSummaryRepository,
     private val moderationStore: ModerationStore,
     private val networkErrors: NetworkErrorMessages,
+    topicPreviews: TopicPreviewCache,
 ) : ViewModel() {
     private val route: Route.Topic = savedStateHandle.toRoute()
     private val topicId: Long = route.topicId
@@ -178,6 +182,7 @@ class TopicViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(
         TopicUiState(
+            preview = topicPreviews.get(topicId),
             isWebSessionActive = secureStore.isWebSessionActive,
             isDeepSeekConfigured = topicSummaryRepository.isConfigured,
             currentUsername = secureStore.sessionUsername,

@@ -49,6 +49,7 @@ import com.vibe.v2ex.data.model.Topic
 import com.vibe.v2ex.data.datastore.SecureStore
 import com.vibe.v2ex.data.moderation.ModerationStore
 import com.vibe.v2ex.data.remote.V2exApiV1
+import com.vibe.v2ex.data.repository.TopicPreviewCache
 import com.vibe.v2ex.designsystem.Avatar
 import com.vibe.v2ex.designsystem.CardGroupItem
 import com.vibe.v2ex.designsystem.LocalMemberTags
@@ -95,6 +96,7 @@ class MemberViewModel @Inject constructor(
     private val apiV1: V2exApiV1,
     private val secureStore: SecureStore,
     private val moderationStore: ModerationStore,
+    private val topicPreviews: TopicPreviewCache,
 ) : ViewModel() {
     private val username: String = savedStateHandle.toRoute<Route.Member>().username
 
@@ -122,6 +124,7 @@ class MemberViewModel @Inject constructor(
         viewModelScope.launch {
             member = runCatching { apiV1.showMember(username) }.getOrNull()
             rawTopics = runCatching { apiV1.topicsByMember(username) }.getOrDefault(emptyList())
+            topicPreviews.remember(rawTopics)
             publishModeratedContent()
             _uiState.update { it.copy(isLoading = false) }
         }
