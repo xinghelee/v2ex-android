@@ -1,5 +1,7 @@
 package com.vibe.v2ex.feature.topic
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -70,6 +72,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -1016,25 +1019,30 @@ private fun ReplyHeaderRow(
     onToggleOnlyMine: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-        Text(
-            text = "$count 条回复",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 6.dp),
-        )
-        ReplyFilterControl(
-            onlyPoster = onlyPoster,
-            onlyMine = onlyMine,
-            onShowAll = {
-                when {
-                    onlyPoster -> onToggleOnlyPoster()
-                    onlyMine -> onToggleOnlyMine()
-                }
-            },
-            onShowPoster = { if (!onlyPoster) onToggleOnlyPoster() },
-            onShowMine = { if (!onlyMine) onToggleOnlyMine() },
-            modifier = Modifier.padding(top = 8.dp),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "$count 条回复",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 6.dp, end = 12.dp),
+            )
+            // 放不下（窄屏、大字号）时筛选可以横向滑动，回复数不被挤掉。
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                ReplyFilterControl(
+                    onlyPoster = onlyPoster,
+                    onlyMine = onlyMine,
+                    onShowAll = {
+                        when {
+                            onlyPoster -> onToggleOnlyPoster()
+                            onlyMine -> onToggleOnlyMine()
+                        }
+                    },
+                    onShowPoster = { if (!onlyPoster) onToggleOnlyPoster() },
+                    onShowMine = { if (!onlyMine) onToggleOnlyMine() },
+                )
+            }
+        }
         if (!warning.isNullOrBlank()) {
             Text(
                 text = warning,
@@ -1051,6 +1059,7 @@ private fun ReplyHeaderRow(
     }
 }
 
+/** 分段控件：灰色底槽 + 选中项浮起的滑块。筛选是次要操作，不用品牌色抢列表的注意力。 */
 @Composable
 private fun ReplyFilterControl(
     onlyPoster: Boolean,
@@ -1060,40 +1069,57 @@ private fun ReplyFilterControl(
     onShowMine: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val selectedText = MaterialTheme.colorScheme.onPrimary
+    val dark = LocalV2Dark.current
+    // 暗色下卡片色和底槽几乎一样，滑块得再亮一档才分得开。
+    val thumbColor = if (dark) Color(0xFF3A3A3C) else MaterialTheme.colorScheme.surface
     val shape = RoundedCornerShape(50)
     Row(
         modifier = modifier
-            .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainer)
-            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-            .padding(3.dp),
+            .padding(2.dp),
     ) {
         listOf(
             Triple("按楼层", !onlyPoster && !onlyMine, onShowAll),
             Triple("只看楼主", onlyPoster, onShowPoster),
             Triple("与我有关", onlyMine, onShowMine),
         ).forEach { (label, selected, action) ->
+            val background by animateColorAsState(
+                targetValue = if (selected) thumbColor else Color.Transparent,
+                label = "replyFilterThumb",
+            )
+            val elevation by animateDpAsState(
+                targetValue = if (selected && !dark) 1.dp else 0.dp,
+                label = "replyFilterElevation",
+            )
+            val textColor by animateColorAsState(
+                targetValue = if (selected) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                label = "replyFilterText",
+            )
             Box(
                 modifier = Modifier
+                    .shadow(elevation, shape)
                     .clip(shape)
-                    .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                    .background(background)
                     .clickable(role = Role.Tab, onClick = action)
                     .semantics {
                         this.role = Role.Tab
                         this.selected = selected
                     }
-                    .heightIn(min = 44.dp)
+                    .heightIn(min = 30.dp)
                     .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                    color = if (selected) selectedText else MaterialTheme.colorScheme.onSurface,
+                    color = textColor,
                 )
             }
         }
