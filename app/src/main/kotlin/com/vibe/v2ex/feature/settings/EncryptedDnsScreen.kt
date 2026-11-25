@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.vibe.v2ex.data.remote.ConnectionProbeResult
 import com.vibe.v2ex.data.remote.DohProbeResult
 import com.vibe.v2ex.data.remote.DohResolver
 import com.vibe.v2ex.designsystem.SectionHeader
@@ -59,6 +60,15 @@ fun EncryptedDnsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showCustomEditor by rememberSaveable { mutableStateOf(false) }
+    var showPreferredIpEditor by rememberSaveable { mutableStateOf(false) }
+
+    if (showPreferredIpEditor) {
+        PreferredIpDialog(
+            initial = uiState.preferredIps,
+            onDismiss = { showPreferredIpEditor = false },
+            onSave = viewModel::savePreferredIps,
+        )
+    }
 
     if (showCustomEditor) {
         CustomDohDialog(
@@ -151,6 +161,48 @@ fun EncryptedDnsScreen(
         Text(
             text = "测试会通过该线路解析 www.v2ex.com 并计时。自定义地址必须是 HTTPS；" +
                 "主机名形式的地址若不填 bootstrap IP，端点本身会先经系统 DNS 解析。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 14.dp),
+        )
+
+        SectionHeader(title = "V2EX 连接")
+        V2Card(modifier = Modifier.padding(horizontal = 16.dp)) {
+            ActionRow(
+                label = "加密域名（ECH）",
+                subtitle = when {
+                    !uiState.echSupported -> "当前系统不支持，需要 Android 17 及以上"
+                    !uiState.enabled -> "开启加密 DNS 后自动使用"
+                    else -> "已启用：连接 V2EX 时隐藏域名，以连接测试结果为准"
+                },
+            )
+            InsetDivider()
+            ActionRow(
+                label = "连接测试",
+                subtitle = "按当前设置连一次 www.v2ex.com",
+                result = uiState.connectionProbe,
+                onProbe = viewModel::probeConnection,
+            )
+            InsetDivider()
+            ActionRow(
+                label = "优选 IP",
+                subtitle = uiState.preferredIpList.takeIf { it.isNotEmpty() }
+                    ?.let { "V2EX 只连这 ${it.size} 个 IP" } ?: "未设置，按 DNS 结果连接",
+                onEdit = { showPreferredIpEditor = true },
+                onProbe = viewModel::probePreferredIps.takeIf { uiState.preferredIpList.isNotEmpty() },
+                running = uiState.ipProbes.values.any { it is ConnectionProbeState.Running },
+            )
+            uiState.preferredIpList.forEach { ip ->
+                Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)) {
+                    Text(text = ip, style = MaterialTheme.typography.labelMedium)
+                    ConnectionProbeLine(uiState.ipProbes[ip])
+                }
+            }
+        }
+        Text(
+            text = "国内直连 V2EX 的障碍有两层：DNS 污染（加密 DNS 可解决）和明文域名（SNI）被识别后重置连接。" +
+                "ECH 把域名加密，需要 Android 17 及以上并开启加密 DNS；网页登录走系统 WebView，暂不支持。" +
+                "优选 IP 只作用于 V2EX 主站，填 Cloudflare 节点 IP，可先逐个测试再保留最快的。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 32.dp, vertical = 14.dp),
@@ -304,6 +356,118 @@ private fun CustomDohDialog(
         confirmButton = {
             TextButton(onClick = {
                 error = onSave(url, bootstrap)
+                if (error == null) onDismiss()
+            }) { Text("保存") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+/** 一行：标题/说明，可选的测试结果，右侧可选「编辑」「测试」。 */
+@Composable
+private fun ActionRow(
+    label: String,
+    subtitle: String,
+    result: ConnectionProbeState? = null,
+    onEdit: (() -> Unit)? = null,
+    onProbe: (() -> Unit)? = null,
+    running: Boolean = result is ConnectionProbeState.Running,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = label, style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Normal,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 1.dp),
+            )
+            ConnectionProbeLine(result)
+        }
+        onEdit?.let {
+            IconButton(onClick = it) {
+                Icon(Icons.Filled.Edit, contentDescription = "编辑", modifier = Modifier.size(18.dp))
+            }
+        }
+        onProbe?.let {
+            IconButton(onClick = it, enabled = !running) {
+                if (running) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Filled.Refresh, contentDescription = "测试", modifier = Modifier.size(20.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionProbeLine(state: ConnectionProbeState?) {
+    when (val result = (state as? ConnectionProbeState.Done)?.result) {
+        is ConnectionProbeResult.Success -> ProbeLine(
+            listOfNotNull(
+                "${result.millis} ms",
+                result.colo,
+                result.serverIp,
+                if (result.echActive) "ECH 已生效" else "ECH 未生效",
+            ).joinToString(" · "),
+            MaterialTheme.colorScheme.primary,
+        )
+        is ConnectionProbeResult.Failed -> ProbeLine("失败：${result.reason}", MaterialTheme.colorScheme.error)
+        null -> Unit
+    }
+}
+
+@Composable
+private fun PreferredIpDialog(
+    initial: String,
+    onDismiss: () -> Unit,
+    /** 返回 null 表示已保存；否则是要内联显示的错误。 */
+    onSave: (String) -> String?,
+) {
+    var value by remember { mutableStateOf(initial) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("V2EX 优选 IP") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it; error = null },
+                    label = { Text("IP 地址（逗号分隔，最多 8 个）") },
+                    placeholder = { Text("172.66.133.207, 104.16.1.1") },
+                    isError = error != null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                error?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                Text(
+                    text = "只对 www.v2ex.com 生效。留空保存即恢复按 DNS 结果连接。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                error = onSave(value)
                 if (error == null) onDismiss()
             }) { Text("保存") }
         },

@@ -37,6 +37,11 @@ data class EncryptedDnsSettings(
      * 模拟器）会先对着 v6 地址等满超时才换 v4，每个域名头一次请求都要卡十几秒。
      */
     val preferIpv6: Boolean = false,
+    /**
+     * V2EX 主站优选 IP（逗号分隔的 Cloudflare 节点 IP）。空 = 照常解析。与 [enabled] 相互独立：
+     * 不开 DoH 也能用它绕开 DNS 污染；开着 DoH 时 ECH 配置仍从 DoH 取。
+     */
+    val preferredIps: String = "",
 )
 
 /**
@@ -81,6 +86,7 @@ class SettingsDataStore @Inject constructor(
         val ENCRYPTED_DNS_CUSTOM_URL = stringPreferencesKey("encrypted_dns_custom_url")
         val ENCRYPTED_DNS_CUSTOM_BOOTSTRAP = stringPreferencesKey("encrypted_dns_custom_bootstrap")
         val ENCRYPTED_DNS_PREFER_IPV6 = booleanPreferencesKey("encrypted_dns_prefer_ipv6")
+        val ENCRYPTED_DNS_PREFERRED_IPS = stringPreferencesKey("encrypted_dns_preferred_ips")
         val NOTIFICATION_PUSH_ENABLED = booleanPreferencesKey("notification_push_enabled")
         val NOTIFICATION_PUSH_INTERVAL = intPreferencesKey("notification_push_interval_minutes")
         val NOTIFICATION_PUSH_LAST_SEEN_ID = longPreferencesKey("notification_push_last_seen_id")
@@ -137,6 +143,7 @@ class SettingsDataStore @Inject constructor(
             customUrl = prefs[Keys.ENCRYPTED_DNS_CUSTOM_URL].orEmpty(),
             customBootstrap = prefs[Keys.ENCRYPTED_DNS_CUSTOM_BOOTSTRAP].orEmpty(),
             preferIpv6 = prefs[Keys.ENCRYPTED_DNS_PREFER_IPV6] ?: false,
+            preferredIps = prefs[Keys.ENCRYPTED_DNS_PREFERRED_IPS].orEmpty(),
         )
     }
 
@@ -183,6 +190,8 @@ class SettingsDataStore @Inject constructor(
         context.settingsDataStore.edit { it[Keys.ENCRYPTED_DNS_RESOLVER] = key }
     suspend fun setEncryptedDnsPreferIpv6(prefer: Boolean) =
         context.settingsDataStore.edit { it[Keys.ENCRYPTED_DNS_PREFER_IPV6] = prefer }
+    suspend fun setEncryptedDnsPreferredIps(ips: String) =
+        context.settingsDataStore.edit { it[Keys.ENCRYPTED_DNS_PREFERRED_IPS] = ips }
 
     suspend fun setNotificationPushEnabled(enabled: Boolean) =
         context.settingsDataStore.edit { it[Keys.NOTIFICATION_PUSH_ENABLED] = enabled }

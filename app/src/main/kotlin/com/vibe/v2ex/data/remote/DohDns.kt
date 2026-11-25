@@ -39,6 +39,8 @@ internal class FallbackDns(
     private val upstreams: List<Dns>,
     private val enabled: () -> Boolean,
     private val system: Dns = Dns.SYSTEM,
+    /** 只影响 [newCall] 路径的 IP 排序；[lookup] 路径由各上游自己排好。 */
+    private val preferIpv6: Boolean = false,
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val onFailure: (String) -> Unit = { Log.w(TAG, it) },
 ) : Dns {
@@ -47,6 +49,31 @@ internal class FallbackDns(
 
     override fun lookup(hostname: String): List<InetAddress> {
         if (!enabled()) return system.lookup(hostname)
+        return resolve(hostname, { it.lookup(hostname) }, { it.isNotEmpty() }) { system.lookup(hostname) }
+    }
+
+    /**
+     * 与 [lookup] 同一套断路/回退规则，但保留完整记录（含 HTTPS 记录里的 ECH 配置）。
+     * 走 DoH 时才有 ECH；回退到系统 DNS 只剩 IP。
+     */
+    override fun newCall(request: Dns.Request): Dns.Call {
+        if (!enabled()) return system.newCall(request)
+        val hostname = request.hostname
+        return BlockingRecordsCall(request) {
+            resolve(
+                hostname,
+                attempt = { upstream -> upstream.newCall(request).collect().orderedIpsForConnect(preferIpv6) },
+                hasAddress = List<Dns.Record>::hasIpAddress,
+            ) { system.lookup(hostname).toIpRecords(hostname) }
+        }
+    }
+
+    private inline fun <T> resolve(
+        hostname: String,
+        attempt: (Dns) -> T,
+        hasAddress: (T) -> Boolean,
+        fallback: () -> T,
+    ): T {
         val now = nowMillis()
         for (i in upstreams.indices) {
             val openedAt = breakerOpenedAt.get(i)
@@ -57,8 +84,8 @@ internal class FallbackDns(
             // 负数同样小于 60_000，会把这一级一直断路到墙钟追回来。
             if (openedAt != 0L && now - openedAt in 0 until BREAKER_MILLIS) continue
             try {
-                val addresses = upstreams[i].lookup(hostname)
-                if (addresses.isNotEmpty()) {
+                val addresses = attempt(upstreams[i])
+                if (hasAddress(addresses)) {
                     // 归零是时钟回拨的保险：墙钟单调不减时这一步不可观测（成功只可能发生在
                     // now ≥ 断路时刻 + 60s 之后），但 now 一旦变小，没归零的旧时间戳会把
                     // 一个已经恢复的上游重新判成断路。
@@ -83,7 +110,7 @@ internal class FallbackDns(
                 onFailure("DoH #$i failed for $hostname: $e")
             }
         }
-        return system.lookup(hostname)
+        return fallback()
     }
 }
 
@@ -112,6 +139,10 @@ class DohDns @Inject constructor(
     @Volatile
     private var delegate: Dns? = null
 
+    /** 用户填的 V2EX 优选 IP；空 = 不干预。与 DoH 开关相互独立。 */
+    @Volatile
+    private var preferredIps: List<InetAddress> = emptyList()
+
     // bootstrap client 刻意不挂 Cache：DoH 响应的 HTTP 缓存语义由 DnsCache 负责，
     // 再套一层磁盘缓存只会把过期结果引回来。
     private val bootstrapClient: OkHttpClient by lazy {
@@ -129,7 +160,42 @@ class DohDns @Inject constructor(
     val isActive: Boolean get() = delegate != null
 
     override fun lookup(hostname: String): List<InetAddress> =
-        delegate?.lookup(hostname) ?: Dns.SYSTEM.lookup(hostname)
+        preferredIps.takeIf { it.isNotEmpty() && isV2exHost(hostname) }
+            ?: delegate?.lookup(hostname)
+            ?: Dns.SYSTEM.lookup(hostname)
+
+    /**
+     * OkHttp 连接层走这里。开着 DoH 时把完整记录（含 ECH 配置）交上去，Android 17+ 因此能用 ECH；
+     * 两项都关时返回默认的 lookup 包装，行为与只实现 [lookup] 时完全一样。
+     */
+    override fun newCall(request: Dns.Request): Dns.Call {
+        val pinned = preferredIps
+        val chain = delegate
+        return when {
+            pinned.isNotEmpty() && isV2exHost(request.hostname) -> pinnedCall(request, pinned, chain)
+            chain != null -> chain.newCall(request)
+            else -> super.newCall(request)
+        }
+    }
+
+    /** 测速用：V2EX 域名只解析到 [ips]，其余域名照常。ECH 配置仍从当前 DoH 线路取。 */
+    fun pinnedTo(ips: List<InetAddress>): Dns = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> =
+            if (isV2exHost(hostname)) ips else this@DohDns.lookup(hostname)
+
+        override fun newCall(request: Dns.Request): Dns.Call =
+            if (isV2exHost(request.hostname)) pinnedCall(request, ips, delegate) else this@DohDns.newCall(request)
+    }
+
+    /** IP 用优选的；HTTPS 记录（ECH 配置）只能来自 DoH，拿不到就只连 IP，不影响连接。 */
+    private fun pinnedCall(request: Dns.Request, ips: List<InetAddress>, chain: Dns?): Dns.Call =
+        BlockingRecordsCall(request) {
+            val metadata = chain
+                ?.let { runCatching { it.newCall(request).collect() }.getOrNull() }
+                .orEmpty()
+                .filterIsInstance<Dns.Record.ServiceMetadata>()
+            metadata + ips.toIpRecords(request.hostname)
+        }
 
     init {
         settings.encryptedDns
@@ -140,6 +206,8 @@ class DohDns @Inject constructor(
                 // 就把整张 Hilt 网络图建起来，直接破坏约束 1（关闭时零开销）。
                 if (value == current) return@onEach
                 current = value
+                val previousPinned = preferredIps
+                preferredIps = parsePreferredIps(value.preferredIps)
                 val previous = delegate
                 // 端点构造失败（自定义地址在这台设备上解析不了之类）只降级成系统 DNS，绝不让这个
                 // 进程级收集器死掉 —— 它一旦终止，之后的开关切换就再也不生效。
@@ -150,7 +218,7 @@ class DohDns @Inject constructor(
                 // 切换要立即生效：连接池里握好的连接是用旧解析结果建的。但只有链真的变了才清池：
                 // 曾经开过、如今关着的用户偏好也不等于默认值，若无条件 client.get() 就会在冷启动
                 // 把整张网络图建起来，破坏「关闭时零开销」。
-                if (previous != null || next != null) {
+                if (previous != null || next != null || previousPinned != preferredIps) {
                     runCatching { client.get().connectionPool.evictAll() }
                         .onFailure { Log.w(TAG, "evictAll failed after DoH settings changed to $value", it) }
                 }
@@ -164,6 +232,15 @@ class DohDns @Inject constructor(
             FallbackDns(
                 upstreams = endpoints.map { it.toDns(bootstrapClient, preferIpv6 = value.preferIpv6) },
                 enabled = { current.enabled },
+                preferIpv6 = value.preferIpv6,
             )
         }
 }
+
+/** 优选 IP 只作用于 V2EX 主站；图床、第三方域名照常解析。 */
+internal fun isV2exHost(hostname: String): Boolean =
+    hostname.equals("www.v2ex.com", ignoreCase = true) || hostname.equals("v2ex.com", ignoreCase = true)
+
+/** 逗号/空格分隔的 IP 字面量；非法项直接丢弃（保存时 ViewModel 已经拦过）。不会触发 DNS 查询。 */
+internal fun parsePreferredIps(raw: String): List<InetAddress> =
+    splitBootstrapIps(raw).filter(::isIpLiteral).distinct().map(InetAddress::getByName)

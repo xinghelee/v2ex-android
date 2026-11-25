@@ -1,5 +1,6 @@
 package com.vibe.v2ex.data.remote
 
+import android.os.Build
 import com.vibe.v2ex.data.datastore.EncryptedDnsSettings
 import okhttp3.Dns
 import okhttp3.HttpUrl
@@ -113,9 +114,24 @@ internal fun DohEndpoint.toDns(client: OkHttpClient, preferIpv6: Boolean = false
     val doh = DnsOverHttps.Builder()
         .client(client)
         .url(url)
+        // HTTPS 记录里带 ECH 配置，只有 Android 17+ 的 TLS 栈用得上；更低版本多查一条纯属浪费。
+        .includeServiceMetadata(Build.VERSION.SDK_INT >= ECH_MIN_SDK)
         .apply { if (bootstrap.isNotEmpty()) bootstrapDnsHosts(bootstrap) }
         .build()
-    return Dns { hostname -> doh.lookup(hostname).orderedForConnect(preferIpv6) }
+    return DohUpstream(doh, preferIpv6)
+}
+
+/** Android 17（API 37）起平台 TLS 支持 ECH，OkHttp 5.5 会自动使用 HTTPS 记录里的配置。 */
+const val ECH_MIN_SDK = 37
+
+/**
+ * 单个 DoH 端点。`newCall` 必须原样转发给 [DnsOverHttps]：OkHttp 连接层走的是 `newCall`，
+ * 只有这样 HTTPS 记录（ECH 配置）才能到达连接层；`lookup` 只剩 IP。
+ */
+private class DohUpstream(private val doh: DnsOverHttps, private val preferIpv6: Boolean) : Dns {
+    override fun lookup(hostname: String): List<InetAddress> = doh.lookup(hostname).orderedForConnect(preferIpv6)
+
+    override fun newCall(request: Dns.Request): Dns.Call = doh.newCall(request)
 }
 
 /** 稳定排序：默认 IPv4 在前；[preferIpv6] 时 IPv6 在前。同族地址保持上游给出的顺序。 */
