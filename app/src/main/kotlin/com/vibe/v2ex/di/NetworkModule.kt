@@ -1,6 +1,7 @@
 package com.vibe.v2ex.di
 
 import com.vibe.v2ex.data.datastore.SecureStore
+import com.vibe.v2ex.data.remote.CloudflareChallengeInterceptor
 import com.vibe.v2ex.data.remote.DohDns
 import com.vibe.v2ex.data.remote.PersistentCookieJar
 import com.vibe.v2ex.data.remote.SoV2exApi
@@ -48,6 +49,8 @@ object NetworkModule {
         .dns(dohDns)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
+        // 挑战页统一变成可识别的异常，别让调用方把它当成「未登录」或解析失败。
+        .addInterceptor(CloudflareChallengeInterceptor)
         .addInterceptor { chain ->
             val request = chain.request()
             // 粘贴的 token 可能夹带换行/空格 — 头部值里出现 0x0a 会让 OkHttp 直接抛异常

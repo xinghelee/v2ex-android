@@ -105,10 +105,14 @@ class AccountViewModel @Inject constructor(
      * cookie 刚写入偶尔还没生效，只对「没结论」重试，明确的不通过立即返回（未登录
      * 浏览时每次翻页都要重试三次纯属浪费）。
      */
-    suspend fun confirmWebLogin(cookieHeader: String, username: String): WebLoginConfirmation {
+    suspend fun confirmWebLogin(
+        cookieHeader: String,
+        username: String,
+        userAgent: String,
+    ): WebLoginConfirmation {
         repeat(VERIFY_ATTEMPTS) { attempt ->
             if (attempt > 0) delay(VERIFY_RETRY_DELAY_MS)
-            when (webSessionService.verifyCookie(cookieHeader)) {
+            when (webSessionService.verifyCookie(cookieHeader, userAgent)) {
                 true -> {
                     onWebLoginSuccess(cookieHeader, username)
                     return WebLoginConfirmation.ACCEPTED

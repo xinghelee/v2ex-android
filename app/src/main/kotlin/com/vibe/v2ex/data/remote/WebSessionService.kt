@@ -116,11 +116,18 @@ class WebSessionService @Inject constructor(
      * 网页登录不能只看页面长相：两步验证没走完时，页面顶部同样渲染登录态导航、
      * 也刮得到用户名，但那个 cookie 发不了帖也同步不了收藏。会话是否真的可用，
      * 一律以能否停在 `/settings` 为准。
+     *
+     * [userAgent] 传 WebView 实际用的 UA：WebView 里过了 Cloudflare 验证拿到的
+     * `cf_clearance` 和 UA 绑定，换个 UA 去校验会再被挑战。被挑战时返回 null（没结论）。
      */
-    suspend fun verifyCookie(cookieHeader: String): Boolean? = withContext(Dispatchers.IO) {
+    suspend fun verifyCookie(cookieHeader: String, userAgent: String? = null): Boolean? = withContext(Dispatchers.IO) {
         // CookieJar 会用自己存的 cookie 覆盖掉手写的 Cookie 头，这一次请求单独关掉它。
         val client = okHttpClient.newBuilder().cookieJar(CookieJar.NO_COOKIES).build()
-        val request = Request.Builder().url("$BASE/settings").header("Cookie", cookieHeader).build()
+        val request = Request.Builder()
+            .url("$BASE/settings")
+            .header("Cookie", cookieHeader)
+            .apply { userAgent?.takeIf(String::isNotBlank)?.let { header("User-Agent", it) } }
+            .build()
         runCatching {
             client.newCall(request).execute().use { response ->
                 response.isSuccessful && response.request.url.encodedPath == "/settings"
@@ -1006,6 +1013,8 @@ class WebSessionService @Inject constructor(
         throw error
     } catch (error: WebsiteFlowException) {
         Result.failure(error)
+    } catch (_: CloudflareChallengeException) {
+        Result.failure(WebsiteFlowException(CLOUDFLARE_CHALLENGE_MESSAGE))
     } catch (_: Throwable) {
         // Do not propagate transport exception strings: some stacks include request metadata.
         Result.failure(WebsiteFlowException(fallbackMessage))

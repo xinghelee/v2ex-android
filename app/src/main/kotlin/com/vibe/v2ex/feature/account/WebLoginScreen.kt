@@ -33,9 +33,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
 
 private const val V2EX_BASE = "https://www.v2ex.com"
-private const val MOBILE_UA =
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 " +
-        "(KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1"
 
 private const val SCRAPE_USERNAME_JS = """
 (function() {
@@ -63,10 +60,11 @@ private const val SCRAPE_USERNAME_JS = """
 @Composable
 fun WebLoginScreen(
     onCancel: () -> Unit,
-    onConfirm: suspend (cookieHeader: String, username: String) -> WebLoginConfirmation,
+    onConfirm: suspend (cookieHeader: String, username: String, userAgent: String) -> WebLoginConfirmation,
 ) {
     // WebViewClient 不是 composable，用一个共享的 state 把候选会话交回 Compose 侧。
     val candidate = remember { mutableStateOf<Pair<String, String>?>(null) }
+    var userAgent by remember { mutableStateOf("") }
     var verifying by remember { mutableStateOf(false) }
     var unverified by remember { mutableStateOf(false) }
 
@@ -74,7 +72,7 @@ fun WebLoginScreen(
         val (cookie, username) = candidate.value ?: return@LaunchedEffect
         verifying = true
         unverified = false
-        val result = onConfirm(cookie, username)
+        val result = onConfirm(cookie, username, userAgent)
         verifying = false
         if (result != WebLoginConfirmation.ACCEPTED) {
             // 网络没结论时给一句提示，否则用户只会看到「登录了但没反应」。
@@ -113,7 +111,12 @@ fun WebLoginScreen(
                     WebView(context).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
-                        settings.userAgentString = MOBILE_UA
+                        // 不伪装 UA：Cloudflare Turnstile 会比对 UA 和真实内核特征，
+                        // 自称 iOS Safari 的 Chromium WebView 在被挑战时会无限「正在验证」。
+                        userAgent = settings.userAgentString
+                        // Turnstile 跑在 challenges.cloudflare.com 的 iframe 里，
+                        // WebView 默认拒收第三方 cookie 会让验证结果存不下来。
+                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                         webViewClient = object : WebViewClient() {
                             @SuppressLint("SetJavaScriptEnabled")
                             override fun onPageFinished(view: WebView, url: String?) {
