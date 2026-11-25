@@ -97,7 +97,7 @@ private data class ShareCardData(
                 title = topic.title,
                 author = topic.authorName,
                 nodeTitle = topic.nodeTitle,
-                timeLabel = relativeTimeText(topic.activityTimestamp),
+                timeLabel = relativeTimeText(topic.created ?: topic.activityTimestamp),
                 excerpt = excerpt,
                 isTruncated = truncated,
                 replies = topic.replies,

@@ -35,7 +35,13 @@ data class ScrapedFavorite(
 )
 
 /** 楼主附言（Supplement）。API 1.0/2.0 都不返回，只能从话题网页解析。 */
-data class TopicAppend(val index: Int, val timeLabel: String, val contentHtml: String)
+data class TopicAppend(
+    val index: Int,
+    val timeLabel: String,
+    val contentHtml: String,
+    /** 网页 `span[title]` 上的绝对时间；解析不到时 UI 退回 [timeLabel]。 */
+    val createdAt: Long? = null,
+)
 
 /** 话题页一次抓取能给出的所有额外信息：浏览数、附言、PRO 会员。 */
 data class TopicPageExtras(
@@ -708,41 +714,10 @@ class WebSessionService @Inject constructor(
             TopicPageExtras(
                 views = Regex("""([\d,]+)\s*(?:views|次点击)""").find(html)
                     ?.groupValues?.get(1)?.filter(Char::isDigit)?.toIntOrNull(),
-                appends = extractAppends(html),
+                appends = WebsitePageParser.topicAppends(html),
                 proMembers = extractProMembers(html),
             )
         }.getOrDefault(TopicPageExtras())
-    }
-
-    /**
-     * 解析附言块。新版结构：`<div class="subtle"><span class="fade">第 1 条附言 · 时间</span>
-     * <div class="topic_content">…</div></div>`；旧帖仍可能是 topic_append 结构。
-     */
-    private fun extractAppends(html: String): List<TopicAppend> {
-        val result = mutableListOf<TopicAppend>()
-        val supplementPattern = Regex(
-            """<div class="subtle">[\s\S]*?<span class="fade">[^<]*?(\d+)[^<]*?·\s*([^<]+)</span>[\s\S]*?<div class="topic_content">([\s\S]*?)</div>""",
-        )
-        for (match in supplementPattern.findAll(html)) {
-            val content = match.groupValues[3].trim()
-            if (content.isEmpty()) continue
-            result += TopicAppend(
-                index = match.groupValues[1].toIntOrNull() ?: (result.size + 1),
-                timeLabel = match.groupValues[2].replace("&nbsp;", "").trim(),
-                contentHtml = content,
-            )
-        }
-        val legacyPattern = Regex(
-            """<div class="topic_append">[\s\S]*?<span class="time">([^<]+)</span>[\s\S]*?<div class="topic_append_content">([\s\S]*?)</div>""",
-        )
-        for (match in legacyPattern.findAll(html)) {
-            result += TopicAppend(
-                index = result.size + 1,
-                timeLabel = match.groupValues[1].trim(),
-                contentHtml = match.groupValues[2].trim(),
-            )
-        }
-        return result
     }
 
     /**

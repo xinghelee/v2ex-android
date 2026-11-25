@@ -65,6 +65,7 @@ import com.vibe.v2ex.designsystem.GlassCircleButton
 import com.vibe.v2ex.designsystem.SectionHeader
 import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.relativeTimeText
+import com.vibe.v2ex.designsystem.topicListTimeText
 import com.vibe.v2ex.designsystem.topicRowTitle
 import com.vibe.v2ex.feature.home.TAB_BAR_CLEARANCE
 import java.text.NumberFormat
@@ -863,7 +864,7 @@ private fun RecentTopicRow(topic: Topic, onClick: () -> Unit) {
         )
         val meta = listOfNotNull(
             topic.nodeTitle.ifBlank { null },
-            relativeTimeText(topic.activityTimestamp).ifBlank { null },
+            topicListTimeText(topic).ifBlank { null },
             topic.replies.takeIf { it > 0 }?.let { "$it 回复" },
         ).joinToString(" · ")
         if (meta.isNotBlank()) {

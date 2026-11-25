@@ -69,6 +69,7 @@ import com.vibe.v2ex.designsystem.V2Colors
 import com.vibe.v2ex.designsystem.cardGroupPosition
 import com.vibe.v2ex.designsystem.htmlToPlainText
 import com.vibe.v2ex.designsystem.relativeTimeText
+import com.vibe.v2ex.designsystem.topicListTimeText
 import com.vibe.v2ex.designsystem.topicRowTitle
 import java.util.Locale
 
@@ -466,7 +467,7 @@ private fun NodeTopicRow(topic: Topic, onClick: () -> Unit, dimmed: Boolean = fa
             Text(
                 text = listOfNotNull(
                     topic.authorName.takeIf(String::isNotBlank),
-                    relativeTimeText(topic.activityTimestamp).ifBlank { null },
+                    topicListTimeText(topic).ifBlank { null },
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Normal,

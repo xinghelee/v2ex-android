@@ -190,6 +190,41 @@ internal object WebsitePageParser {
     fun isConfirmedNotificationsPage(html: String): Boolean =
         Jsoup.parse(html).select("a[href]").any { it.attr("href").startsWith("/notifications?p=") }
 
+    /**
+     * 楼主附言。现行结构：`<div class="subtle"><span class="fade">第 1 条附言 · <span title="…">时间</span></span>
+     * <div class="topic_content">…</div></div>`，时间嵌在内层 span 里；旧帖仍可能是 topic_append 结构。
+     */
+    fun topicAppends(html: String): List<TopicAppend> {
+        // 关掉 prettyPrint：正文 html() 要原样交给富文本解析，不能被插入换行。
+        val document = Jsoup.parse(html).apply { outputSettings().prettyPrint(false) }
+        val current = document.select("div.subtle").mapNotNull { block ->
+            val content = block.selectFirst("div.topic_content")?.html()?.trim()
+            if (content.isNullOrEmpty()) return@mapNotNull null
+            val header = block.selectFirst("span.fade")
+            val timeElement = header?.selectFirst("span[title]")
+            TopicAppend(
+                index = header?.text()?.let(APPEND_INDEX::find)?.groupValues?.get(1)?.toIntOrNull() ?: 0,
+                timeLabel = (timeElement?.text() ?: header?.text()?.substringAfter('·', "")).orEmpty().trim(),
+                contentHtml = content,
+                createdAt = timeElement?.let(::absoluteTime),
+            )
+        }
+        val legacy = document.select("div.topic_append").mapNotNull { block ->
+            val content = block.selectFirst("div.topic_append_content")?.html()?.trim()
+            if (content.isNullOrEmpty()) return@mapNotNull null
+            val time = block.selectFirst("span.time")
+            TopicAppend(
+                index = 0,
+                timeLabel = time?.text()?.trim().orEmpty(),
+                contentHtml = content,
+                createdAt = time?.let(::absoluteTime),
+            )
+        }
+        return (current + legacy).mapIndexed { position, append ->
+            if (append.index > 0) append else append.copy(index = position + 1)
+        }
+    }
+
     private fun absoluteTime(element: Element): Long? = runCatching {
         OffsetDateTime.parse(element.attr("title").trim(), WEB_TIME_FORMAT).toEpochSecond()
     }.getOrNull()
@@ -242,6 +277,7 @@ internal object WebsitePageParser {
         "月" to 2_592_000L, "个月" to 2_592_000L,
         "year" to 31_536_000L, "years" to 31_536_000L, "年" to 31_536_000L,
     )
+    private val APPEND_INDEX = Regex("""(\d+)""")
     private val GRAVATAR_SIZE = Regex("""([?&]s=)[0-9]+""")
     private val WEB_TIME_FORMAT: DateTimeFormatter =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss XXX", Locale.US)

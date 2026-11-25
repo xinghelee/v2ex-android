@@ -60,6 +60,7 @@ import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.cardGroupPosition
 import com.vibe.v2ex.designsystem.memberTagsFor
 import com.vibe.v2ex.designsystem.relativeTimeText
+import com.vibe.v2ex.designsystem.topicListTimeText
 import com.vibe.v2ex.designsystem.topicRowTitle
 import com.vibe.v2ex.feature.home.TAB_BAR_CLEARANCE
 import com.vibe.v2ex.feature.tags.MemberTagEditorDialog
@@ -305,7 +306,7 @@ fun MemberScreen(
                                 Text(
                                     text = listOf(
                                         topic.nodeTitle,
-                                        relativeTimeText(topic.activityTimestamp),
+                                        topicListTimeText(topic),
                                     ).filter(String::isNotBlank).joinToString(" · "),
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Normal,

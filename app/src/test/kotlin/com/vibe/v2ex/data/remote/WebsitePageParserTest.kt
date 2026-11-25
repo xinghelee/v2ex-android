@@ -226,4 +226,30 @@ class WebsitePageParserTest {
         assertNull(WebsitePageParser.notificationState(english.replace("href=\"/notifications\"", "href=\"/notifications?p=1\"")))
         assertNull(WebsitePageParser.notificationState(english.replace("unread notifications", "messages")))
     }
+
+    @Test
+    fun `topic appends parse nested time span and legacy blocks`() {
+        val html = """
+            <div class="subtle">
+                <span class="fade">Supplement 1 &nbsp;·&nbsp; <span title="2026-09-23 16:21:42 +08:00">Sep 23</span></span>
+                <div class="sep5"></div>
+                <div class="topic_content">地址写错了<br />奖励再追加十位！</div>
+            </div>
+            <div class="subtle">
+                <span class="fade">第 2 条附言 &nbsp;·&nbsp; <span title="2026-09-24 09:00:00 +08:00">3 小时前</span></span>
+                <div class="topic_content">第二条</div>
+            </div>
+            <div class="subtle"><span class="fade">空附言</span><div class="topic_content"> </div></div>
+            <div class="topic_append"><span class="time">2020-01-01</span><div class="topic_append_content">旧附言</div></div>
+        """.trimIndent()
+
+        val appends = WebsitePageParser.topicAppends(html)
+        assertEquals(listOf(1, 2, 3), appends.map { it.index })
+        assertEquals("Sep 23", appends[0].timeLabel)
+        assertEquals(1_790_151_702L, appends[0].createdAt)
+        assertEquals("地址写错了<br>奖励再追加十位！", appends[0].contentHtml)
+        assertEquals("3 小时前", appends[1].timeLabel)
+        assertEquals("旧附言", appends[2].contentHtml)
+        assertNull(appends[2].createdAt)
+    }
 }

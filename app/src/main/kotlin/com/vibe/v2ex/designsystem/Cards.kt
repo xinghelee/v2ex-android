@@ -190,7 +190,7 @@ fun TopicMetaLine(topic: Topic, modifier: Modifier = Modifier, showAuthor: Boole
         Text(
             text = listOfNotNull(
                 topic.authorName.takeIf { showAuthor && it.isNotBlank() },
-                relativeTimeText(topic.activityTimestamp).ifBlank { null },
+                topicListTimeText(topic).ifBlank { null },
             ).joinToString(" · "),
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Normal,
@@ -295,7 +295,7 @@ fun FeaturedTopicCard(
                     color = MaterialTheme.colorScheme.outline,
                 )
                 Text(
-                    text = relativeTimeText(topic.activityTimestamp),
+                    text = topicListTimeText(topic),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),

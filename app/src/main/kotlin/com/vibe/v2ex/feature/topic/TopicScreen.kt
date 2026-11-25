@@ -726,8 +726,6 @@ private fun TopicPreviewLoading(preview: Topic, onAuthorClick: (String) -> Unit)
             isPro = false,
             isOfflineSaved = false,
             onAuthorClick = onAuthorClick,
-            // 列表给的是最后回复时间，和详情接口的时间戳不是一回事，先留空免得加载完跳一下。
-            showActivityTime = false,
         )
         Box(
             modifier = Modifier.fillMaxWidth().padding(top = 32.dp),
@@ -747,7 +745,6 @@ private fun TopicCard(
     isPro: Boolean,
     isOfflineSaved: Boolean,
     onAuthorClick: (String) -> Unit,
-    showActivityTime: Boolean = true,
     avatarUrl: String? = topic.member?.avatarUrl,
 ) {
     V2Card(
@@ -792,9 +789,9 @@ private fun TopicCard(
                                 modifier = Modifier.padding(start = 5.dp),
                             )
                         }
-                        // 不显示时也占住这一行，标题卡高度不变。
+                        // 发帖时间（不是最后回复时间）。网页列表行没有 created，预览时为空但仍占住这一行。
                         Text(
-                            text = if (showActivityTime) relativeTimeText(topic.activityTimestamp) else "",
+                            text = relativeTimeText(topic.created),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Normal,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -848,7 +845,9 @@ private fun TopicCard(
                     )
                     Column(modifier = Modifier.padding(start = 12.dp)) {
                         Text(
-                            text = "楼主 ${append.append.timeLabel.ifBlank { "补充" }} 补充",
+                            text = append.append.let { item ->
+                                "楼主 ${relativeTimeText(item.createdAt).ifBlank { item.timeLabel }.ifBlank { "补充" }} 补充"
+                            },
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                         )

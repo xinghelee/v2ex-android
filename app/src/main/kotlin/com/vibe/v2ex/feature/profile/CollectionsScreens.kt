@@ -64,6 +64,7 @@ import com.vibe.v2ex.designsystem.SectionHeader
 import com.vibe.v2ex.designsystem.V2Card
 import com.vibe.v2ex.designsystem.cardGroupPosition
 import com.vibe.v2ex.designsystem.relativeTimeText
+import com.vibe.v2ex.designsystem.topicListTimeText
 import com.vibe.v2ex.designsystem.topicRowTitle
 import com.vibe.v2ex.feature.home.TAB_BAR_CLEARANCE
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -669,7 +670,7 @@ fun MyPostsScreen(
                             title = topic.title,
                             meta = listOf(
                                 topic.nodeTitle,
-                                relativeTimeText(topic.activityTimestamp),
+                                topicListTimeText(topic),
                             ).filter(String::isNotBlank).joinToString(" · "),
                             replies = topic.replies,
                             onClick = { onTopicClick(topic.id) },
